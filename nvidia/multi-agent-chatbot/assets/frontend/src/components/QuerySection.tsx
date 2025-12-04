@@ -231,9 +231,9 @@ export default function QuerySection({
           wsRef.current.close();
         }
 
-        const wsProtocol = 'ws:';
-        const wsHost = 'localhost';
-        const wsPort = '8000';
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsHost = window.location.hostname;
+        const wsPort = window.location.port || (wsProtocol === 'wss:' ? '443' : '80');
         const ws = new WebSocket(`${wsProtocol}//${wsHost}:${wsPort}/ws/chat/${currentChatId}`);
         wsRef.current = ws;
 
@@ -309,7 +309,13 @@ export default function QuerySection({
         };
 
         ws.onerror = (error) => {
-          console.error("WebSocket error:", error);
+          const event = error as Event & { message?: string };
+          console.error("WebSocket error:", {
+            message: event.message,
+            type: event.type,
+            url: ws.url,
+            readyState: ws.readyState
+          });
           setIsStreaming(false);
         };
       } catch (error) {
