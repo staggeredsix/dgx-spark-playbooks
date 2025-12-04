@@ -35,7 +35,7 @@ services:
       - POSTGRES_USER=chatbot_user
       - POSTGRES_PASSWORD=chatbot_password
       - QDRANT_URL=http://qdrant:6333
-      - LLM_API_BASE_URL=http://ollama:11435/v1
+      - LLM_API_BASE_URL=http://ollama:11434/v1
       - EMBEDDING_MODEL=qwen3-embedding:8b
       - MODELS=gpt-oss:120b,ministral-3:14b,qwen3-coder:30b
 
