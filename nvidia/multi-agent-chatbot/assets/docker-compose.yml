@@ -40,7 +40,7 @@ services:
       - MODELS=gpt-oss:120b,ministral-3:14b,qwen3-coder:30b
 
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.13.2-rc0
     container_name: ollama
     restart: unless-stopped
     ports:
