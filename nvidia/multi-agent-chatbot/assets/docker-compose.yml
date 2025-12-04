@@ -39,6 +39,25 @@ services:
       - EMBEDDING_MODEL=qwen3-embedding:8b
       - MODELS=gpt-oss:120b,ministral-3:14b,qwen3-coder:30b
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      - OLLAMA_KEEP_ALIVE=-1
+    volumes:
+      - ollama-data:/root/.ollama
+    command: ["serve"]
+
   frontend:
     container_name: frontend
     build:
@@ -88,6 +107,7 @@ services:
 
 volumes:
   postgres_data:
+  ollama-data:
 
 networks:
   default:

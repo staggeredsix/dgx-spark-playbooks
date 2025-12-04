@@ -64,8 +64,13 @@ chmod +x model_download.sh
 #### 4. Start the docker containers for the application
 This step starts the Ollama runtime, Qdrant, the backend API server, and the frontend UI. This step can take 10 to 20 minutes depending on network speed.
 ```bash
-docker compose -f docker-compose.yml -f docker-compose-models.yml up -d --build
+docker compose up -d --build
 ```
+
+> **Tip**: The models compose file (`docker-compose-models.yml`) remains available for overrides and customization. If you prefer to keep your model configuration separate, you can still run:
+> ```bash
+> docker compose -f docker-compose.yml -f docker-compose-models.yml up -d --build
+> ```
 
 Wait for all the containers to become ready and healthy.
 ```bash
