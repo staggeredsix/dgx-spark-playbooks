@@ -19,6 +19,7 @@
 import asyncio
 import contextlib
 import json
+import os
 from typing import AsyncIterator, List, Dict, Any, TypedDict, Optional, Callable, Awaitable
 
 from langchain_core.messages import HumanMessage, AIMessage, AnyMessage, SystemMessage, ToolMessage, ToolCall
@@ -68,6 +69,7 @@ class ChatAgent:
         self.config_manager = config_manager
         self.conversation_store = postgres_storage
         self.current_model = None
+        self.api_base = os.getenv("LLM_API_BASE_URL", "http://ollama:11434/v1")
         
         self.current_model = None
         self.max_iterations = 3
@@ -159,8 +161,8 @@ class ChatAgent:
                 self.current_model = model_name
                 logger.info(f"Switched to model: {model_name}")
                 self.model_client = AsyncOpenAI(
-                    base_url=f"http://{self.current_model}:8000/v1",
-                    api_key="api_key"
+                    base_url=self.api_base,
+                    api_key=os.getenv("LLM_API_KEY", "ollama")
                 )
             else:
                 raise ValueError(f"Model {model_name} is not available. Available models: {available_models}")

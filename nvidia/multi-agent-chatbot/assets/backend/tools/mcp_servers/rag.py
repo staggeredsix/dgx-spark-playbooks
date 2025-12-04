@@ -87,8 +87,8 @@ class RAGAgent:
         self.vector_store = create_vector_store_with_config(self.config_manager)
         self.model_name = self.config_manager.get_selected_model()
         self.model_client = AsyncOpenAI(
-            base_url=f"http://{self.model_name}:8000/v1",
-            api_key="api_key"
+            base_url=os.getenv("LLM_API_BASE_URL", "http://ollama:11434/v1"),
+            api_key=os.getenv("LLM_API_KEY", "ollama")
         )
 
         self.generation_prompt = self._get_generation_prompt()

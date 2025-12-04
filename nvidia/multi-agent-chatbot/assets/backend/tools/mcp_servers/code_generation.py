@@ -16,6 +16,7 @@
 #
 
 import asyncio
+import os
 from typing import Type
 from pydantic import BaseModel, Field
 
@@ -40,8 +41,8 @@ async def write_code(query: str, programming_language: str):
         The generated code.
     """
     model_client = AsyncOpenAI(
-        base_url="http://deepseek-coder:8000/v1",
-        api_key="ollama"
+        base_url=os.getenv("LLM_API_BASE_URL", "http://ollama:11434/v1"),
+        api_key=os.getenv("LLM_API_KEY", "ollama")
     )
     
     system_prompt = f"""You are an expert coder specializing in {programming_language}.

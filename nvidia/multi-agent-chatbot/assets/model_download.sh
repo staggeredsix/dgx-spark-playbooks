@@ -17,33 +17,17 @@
 #
 set -euo pipefail
 
-ROOT_DIR="$(pwd)"
-MODELS_DIR="$ROOT_DIR/models"
-mkdir -p "$MODELS_DIR"
-cd "$MODELS_DIR"
+MODELS=(
+  "llama3.1:8b"
+  "deepseek-coder-v2:lite"
+  "llava:13b"
+  "nomic-embed-text"
+)
 
-download_if_needed() {
-  url="$1"
-  file="$2"
-  if [ -f "$file" ]; then
-    echo "$file already exists, skipping."
-  else
-    curl -C - -L -o "$file" "$url"
-  fi
-}
+for model in "${MODELS[@]}"; do
+  echo "Pulling ${model} into Ollama..."
+  docker compose -f docker-compose-models.yml run --rm ollama ollama pull "${model}"
+  echo "Finished pulling ${model}" && echo
+done
 
-download_if_needed "https://huggingface.co/TheBloke/deepseek-coder-6.7B-instruct-GGUF/resolve/main/deepseek-coder-6.7b-instruct.Q8_0.gguf" "deepseek-coder-6.7b-instruct.Q8_0.gguf"
-
-download_if_needed "https://huggingface.co/Qwen/Qwen3-Embedding-4B-GGUF/resolve/main/Qwen3-Embedding-4B-Q8_0.gguf" "Qwen3-Embedding-4B-Q8_0.gguf"
-
-# Comment next three lines if you want to use gpt-oss-20b
-download_if_needed "https://huggingface.co/ggml-org/gpt-oss-120b-GGUF/resolve/main/gpt-oss-120b-mxfp4-00001-of-00003.gguf" "gpt-oss-120b-mxfp4-00001-of-00003.gguf"
-
-download_if_needed "https://huggingface.co/ggml-org/gpt-oss-120b-GGUF/resolve/main/gpt-oss-120b-mxfp4-00002-of-00003.gguf" "gpt-oss-120b-mxfp4-00002-of-00003.gguf"
-
-download_if_needed "https://huggingface.co/ggml-org/gpt-oss-120b-GGUF/resolve/main/gpt-oss-120b-mxfp4-00003-of-00003.gguf" "gpt-oss-120b-mxfp4-00003-of-00003.gguf"
-
-# Uncomment next line if you want to use gpt-oss-20b
-# download_if_needed "https://huggingface.co/ggml-org/gpt-oss-20b-GGUF/resolve/main/gpt-oss-20b-mxfp4.gguf" "gpt-oss-20b-mxfp4.gguf"
-
-echo "All models downloaded."
+echo "All models downloaded into the Ollama volume."

@@ -47,6 +47,7 @@ POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", 5432))
 POSTGRES_DB = os.getenv("POSTGRES_DB", "chatbot")
 POSTGRES_USER = os.getenv("POSTGRES_USER", "chatbot_user")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "chatbot_password")
+QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
 
 config_manager = ConfigManager("./config.json")
 
@@ -58,8 +59,7 @@ postgres_storage = PostgreSQLConversationStorage(
     password=POSTGRES_PASSWORD
 )
 
-vector_store = create_vector_store_with_config(config_manager)
-
+vector_store = create_vector_store_with_config(config_manager, uri=QDRANT_URL)
 vector_store._initialize_store()
 
 agent: ChatAgent | None = None
