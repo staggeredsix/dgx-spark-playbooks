@@ -54,7 +54,7 @@ class VectorStore:
             self.collection_name = collection_name
             self.embeddings = embeddings or OllamaEmbeddings(
                 model=os.getenv("EMBEDDING_MODEL", "qwen3-embedding:8b"),
-                base_url=os.getenv("LLM_API_BASE_URL", "http://ollama:11435/v1"),
+                base_url=self._get_embedding_base_url(),
             )
             self.on_source_deleted = on_source_deleted
             self._initialize_store()
@@ -222,6 +222,11 @@ class VectorStore:
                 "error": str(e)
             }, exc_info=True)
             raise
+
+    def _get_embedding_base_url(self) -> str:
+        base_url = os.getenv("LLM_API_BASE_URL", "http://ollama:11434/v1").rstrip("/")
+        sanitized_url = base_url.removesuffix("/v1").removesuffix("/api")
+        return sanitized_url
 
     def index_documents(self, documents: List[Document]) -> List[Document]:
         try:
