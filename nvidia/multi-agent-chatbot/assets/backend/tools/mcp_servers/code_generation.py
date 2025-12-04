@@ -41,7 +41,7 @@ async def write_code(query: str, programming_language: str):
         The generated code.
     """
     model_client = AsyncOpenAI(
-        base_url=os.getenv("LLM_API_BASE_URL", "http://ollama:11434/v1"),
+        base_url=os.getenv("LLM_API_BASE_URL", "http://ollama:11435/v1"),
         api_key=os.getenv("LLM_API_KEY", "ollama")
     )
     
