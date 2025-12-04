@@ -37,6 +37,8 @@ services:
       - QDRANT_URL=http://qdrant:6333
       - LLM_API_BASE_URL=http://ollama:11434/v1
       - EMBEDDING_MODEL=qwen3-embedding:8b
+      - CODE_MODEL=qwen3-coder:30b
+      - VISION_MODEL=ministral-3:14b
       - MODELS=gpt-oss:120b,ministral-3:14b,qwen3-coder:30b
 
   ollama:
