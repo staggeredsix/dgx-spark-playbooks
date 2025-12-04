@@ -35,6 +35,13 @@ This project was built to be customizable, serving as a framework that developer
 | ministral-3:14b         | Mistral via Ollama  | Image      | Vision model for image understanding |
 | qwen3-embedding:8b      | Alibaba via Ollama  | Embedding  | Embedding model for Qdrant |
 
+Environment variables in `docker-compose.yml` wire these defaults to the correct agents:
+
+- `MODELS` → chat/supervisor picker (default `gpt-oss:120b` first)
+- `CODE_MODEL` → code-generation MCP tool (`qwen3-coder:30b`)
+- `VISION_MODEL` → image-understanding MCP tool (`ministral-3:14b`)
+- `EMBEDDING_MODEL` → vector search (`qwen3-embedding:8b`)
+
 > Models are pulled automatically into the Ollama volume with `./model_download.sh`.
 
 > **Warning**:
