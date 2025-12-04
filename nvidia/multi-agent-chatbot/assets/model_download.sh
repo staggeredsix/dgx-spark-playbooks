@@ -14,8 +14,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
 set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${SCRIPT_DIR}"
+
+COMPOSE_FILE="docker-compose-models.yml"
 
 MODELS=(
   "gpt-oss:120b"
@@ -24,10 +28,26 @@ MODELS=(
   "qwen3-embedding:8b"
 )
 
+echo "Starting Ollama container for model caching..."
+docker compose -f "${COMPOSE_FILE}" up -d ollama
+
+for attempt in {1..10}; do
+  if docker exec -i ollama ollama --version >/dev/null 2>&1; then
+    break
+  fi
+  echo "Waiting for Ollama to become ready (attempt ${attempt}/10)..."
+  sleep 3
+  if [[ ${attempt} -eq 10 ]]; then
+    echo "Ollama container is not ready; aborting." >&2
+    exit 1
+  fi
+done
+
 for model in "${MODELS[@]}"; do
   echo "Pulling ${model} into Ollama..."
-  docker compose -f docker-compose-models.yml run --rm ollama ollama pull "${model}"
-  echo "Finished pulling ${model}" && echo
+  docker exec -i ollama ollama pull "${model}"
+  echo "Finished pulling ${model}"
+  echo
 done
 
 echo "All models downloaded into the Ollama volume."
