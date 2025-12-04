@@ -15,9 +15,9 @@ This project was built to be customizable, serving as a framework that developer
 
   - **Tool Calling**: This project uses an agents-as-tools framework and showcases the ability to create additional agents connected as tools. General tools can also be added.
 
-  - **Easily Swappable Models**: Models are loaded and served using Llama CPP and Ollama and served through the OpenAI API. Any OpenAI-compatible model can be integrated into the project.
+  - **Easily Swappable Models**: Models are loaded and served with Ollama over the OpenAI-compatible API. Any OpenAI-compatible model available in Ollama can be integrated into the project.
 
-  - **Vector Indexing & Retrieval**: GPU-accelerated Milvus for high-performance document retrieval.
+  - **Vector Indexing & Retrieval**: Qdrant provides document retrieval without the jemalloc dependency.
 
   - **Real-time LLM Streaming**: We present custom LLM-streaming infrastructure, making it easy for developers to stream supervisor responses from any OpenAI compatible model. 
 
@@ -28,14 +28,14 @@ This project was built to be customizable, serving as a framework that developer
 <img src="assets/system-diagram.png" alt="System Diagram" style="max-width:600px;border-radius:5px;justify-content:center">
 
 ## Default Models
-| Model                        | Quantization | Model Type | VRAM        |
-|------------------------------|--------------|------------|-------------|
-| GPT-OSS:120B                 | MXFP4        | Chat       | ~ 63.5 GB   |
-| Deepseek-Coder:6.7B-Instruct | Q8           | Coding     | ~ 9.5  GB   |
-| Qwen2.5-VL:7B-Instruct       | BF16         | Image      | ~ 35.4 GB   |
-| Qwen3-Embedding-4B           | Q8           | Embedding  | ~ 5.39 GB   |
+| Model                   | Source (Ollama)     | Model Type | Notes |
+|-------------------------|---------------------|------------|-------|
+| gpt-oss:120b            | NVIDIA via Ollama   | Chat       | Default supervisor/chat model |
+| qwen3-coder:30b         | Alibaba via Ollama  | Coding     | Used by code generation MCP tool |
+| ministral-3:14b         | Mistral via Ollama  | Image      | Vision model for image understanding |
+| qwen3-embedding:8b      | Alibaba via Ollama  | Embedding  | Embedding model for Qdrant |
 
-**Total VRAM required:** ~114 GB
+> Models are pulled automatically into the Ollama volume with `./model_download.sh`.
 
 > **Warning**:
 > Since the default models use majority of available VRAM, ensure that you don't have anything already running on DGX Spark using `nvidia-smi`. If you do, switch to `gpt-oss-20b` following [this guide](#using-different-models).
@@ -55,29 +55,21 @@ newgrp docker
 > session with updated group permissions.
 
 #### 3. Run the model download script
-The setup script will take care of pulling model GGUF files from HuggingFace. The model files being pulled include gpt-oss-120B (~63GB), Deepseek-Coder:6.7B-Instruct (~7GB) and Qwen3-Embedding-4B (~4GB). This may take between 30 minutes to 2 hours depending on network speed.
+The setup script will pull the required Ollama models into the shared volume: `gpt-oss:120b`, `qwen3-coder:30b`, `ministral-3:14b`, and `qwen3-embedding:8b`.
 ```bash
 chmod +x model_download.sh
 ./model_download.sh
 ```
 
 #### 4. Start the docker containers for the application
-This step builds the base llama cpp server image and starts all the required docker services to serve models, the backend API server as well as the frontend UI. This step can take 10 to 20 minutes depending on network speed.
+This step starts the Ollama runtime, Qdrant, the backend API server, and the frontend UI. This step can take 10 to 20 minutes depending on network speed.
 ```bash
 docker compose -f docker-compose.yml -f docker-compose-models.yml up -d --build
 ```
-> Note: Qwen2.5 VL model container may be reported as unhealthy while starting up, which can be ignored.
 
-Wait for all the containers to become ready and healthy. 
+Wait for all the containers to become ready and healthy.
 ```bash
 watch 'docker ps --format "table {{.ID}}\t{{.Names}}\t{{.Status}}"'
-```
-
->**Note**: If any of the model downloads fail, change directories to the `models/` directory and delete the problematic file and start from step 3 again.
-```bash
-cd models/
-rm -rf <model_file>
-./model_download.sh
 ```
 
 #### 5. Access the frontend UI
