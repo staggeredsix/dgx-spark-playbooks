@@ -69,7 +69,7 @@ class ChatAgent:
         self.config_manager = config_manager
         self.conversation_store = postgres_storage
         self.current_model = None
-        self.api_base = os.getenv("LLM_API_BASE_URL", "http://ollama:11434/v1")
+        self.api_base = os.getenv("LLM_API_BASE_URL", "http://ollama:11435/v1")
         
         self.current_model = None
         self.max_iterations = 3
