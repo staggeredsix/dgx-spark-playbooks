@@ -31,6 +31,12 @@ MODELS=(
 echo "Starting Ollama container for model caching..."
 docker compose -f "${COMPOSE_FILE}" up -d ollama
 
+cleanup() {
+  echo "Stopping Ollama container used for caching..."
+  docker compose -f "${COMPOSE_FILE}" down
+}
+trap cleanup EXIT
+
 for attempt in {1..10}; do
   if docker exec -i ollama ollama --version >/dev/null 2>&1; then
     break
