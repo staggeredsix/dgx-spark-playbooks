@@ -26,7 +26,7 @@ from mcp.server.fastmcp import FastMCP
 from openai import AsyncOpenAI
 
 mcp = FastMCP("Code Generation")
-model_name = "deepseek-coder:6.7b"
+model_name = "qwen3-coder:30b"
 
 
 @mcp.tool()

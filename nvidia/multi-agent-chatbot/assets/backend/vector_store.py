@@ -53,7 +53,7 @@ class VectorStore:
             self.uri = uri
             self.collection_name = collection_name
             self.embeddings = embeddings or OllamaEmbeddings(
-                model=os.getenv("EMBEDDING_MODEL", "nomic-embed-text"),
+                model=os.getenv("EMBEDDING_MODEL", "qwen3-embedding:8b"),
                 base_url=os.getenv("LLM_API_BASE_URL", "http://ollama:11434/v1"),
             )
             self.on_source_deleted = on_source_deleted

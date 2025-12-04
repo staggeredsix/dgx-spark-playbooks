@@ -36,8 +36,8 @@ services:
       - POSTGRES_PASSWORD=chatbot_password
       - QDRANT_URL=http://qdrant:6333
       - LLM_API_BASE_URL=http://ollama:11434/v1
-      - EMBEDDING_MODEL=nomic-embed-text
-      - MODELS=llama3.1:8b,llava:13b,deepseek-coder-v2:lite
+      - EMBEDDING_MODEL=qwen3-embedding:8b
+      - MODELS=gpt-oss:120b,ministral-3:14b,qwen3-coder:30b
 
   frontend:
     container_name: frontend

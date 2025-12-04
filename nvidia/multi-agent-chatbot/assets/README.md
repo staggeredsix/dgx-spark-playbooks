@@ -30,10 +30,10 @@ This project was built to be customizable, serving as a framework that developer
 ## Default Models
 | Model                   | Source (Ollama)     | Model Type | Notes |
 |-------------------------|---------------------|------------|-------|
-| llama3.1:8b             | Meta via Ollama     | Chat       | Default supervisor/chat model |
-| deepseek-coder-v2:lite  | Deepseek via Ollama | Coding     | Used by code generation MCP tool |
-| llava:13b               | Ollama              | Image      | Vision model for image understanding |
-| nomic-embed-text        | Ollama              | Embedding  | Embedding model for Qdrant |
+| gpt-oss:120b            | NVIDIA via Ollama   | Chat       | Default supervisor/chat model |
+| qwen3-coder:30b         | Alibaba via Ollama  | Coding     | Used by code generation MCP tool |
+| ministral-3:14b         | Mistral via Ollama  | Image      | Vision model for image understanding |
+| qwen3-embedding:8b      | Alibaba via Ollama  | Embedding  | Embedding model for Qdrant |
 
 > Models are pulled automatically into the Ollama volume with `./model_download.sh`.
 
@@ -55,7 +55,7 @@ newgrp docker
 > session with updated group permissions.
 
 #### 3. Run the model download script
-The setup script will pull the required Ollama models into the shared volume: `llama3.1:8b`, `deepseek-coder-v2:lite`, `llava:13b`, and `nomic-embed-text`.
+The setup script will pull the required Ollama models into the shared volume: `gpt-oss:120b`, `qwen3-coder:30b`, `ministral-3:14b`, and `qwen3-embedding:8b`.
 ```bash
 chmod +x model_download.sh
 ./model_download.sh

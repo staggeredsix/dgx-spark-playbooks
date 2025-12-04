@@ -18,10 +18,10 @@
 set -euo pipefail
 
 MODELS=(
-  "llama3.1:8b"
-  "deepseek-coder-v2:lite"
-  "llava:13b"
-  "nomic-embed-text"
+  "gpt-oss:120b"
+  "qwen3-coder:30b"
+  "ministral-3:14b"
+  "qwen3-embedding:8b"
 )
 
 for model in "${MODELS[@]}"; do
