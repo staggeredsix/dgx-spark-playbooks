@@ -1,5 +1,8 @@
 #!/bin/sh
-set -euo pipefail
+# Enable strict mode when supported by the shell (dash used by /bin/sh doesn't
+# implement pipefail). Fall back to "-eu" so the script still aborts on errors
+# and undefined variables without exiting prematurely on startup.
+set -euo pipefail 2>/dev/null || set -eu
 
 AUTOSTART_MODELS=${OLLAMA_AUTOSTART_MODELS:-"gpt-oss:120b,qwen3-coder:30b,ministral-3:14b,qwen3-embedding:8b"}
 

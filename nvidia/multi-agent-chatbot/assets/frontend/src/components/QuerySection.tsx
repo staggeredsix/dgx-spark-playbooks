@@ -232,8 +232,8 @@ export default function QuerySection({
         }
 
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsHost = window.location.hostname;
-        const wsPort = window.location.port || (wsProtocol === 'wss:' ? '443' : '80');
+        const wsHost = process.env.NEXT_PUBLIC_BACKEND_HOST || window.location.hostname;
+        const wsPort = process.env.NEXT_PUBLIC_BACKEND_PORT || '8000';
         const ws = new WebSocket(`${wsProtocol}//${wsHost}:${wsPort}/ws/chat/${currentChatId}`);
         wsRef.current = ws;
 
