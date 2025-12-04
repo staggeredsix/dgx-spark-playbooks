@@ -46,7 +46,7 @@ services:
     container_name: ollama
     restart: unless-stopped
     ports:
-      - "11435:11434"
+      - "11434:11434"
     deploy:
       resources:
         reservations:
@@ -56,9 +56,11 @@ services:
               capabilities: [gpu]
     environment:
       - OLLAMA_KEEP_ALIVE=-1
+      - OLLAMA_AUTOSTART_MODELS=gpt-oss:120b,qwen3-coder:30b,ministral-3:14b,qwen3-embedding:8b
     volumes:
       - ollama-data:/root/.ollama
-    command: ["serve"]
+      - ./ollama-entrypoint.sh:/ollama-entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/ollama-entrypoint.sh"]
 
   frontend:
     container_name: frontend

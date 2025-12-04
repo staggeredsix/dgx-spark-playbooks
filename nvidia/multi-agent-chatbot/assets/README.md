@@ -41,6 +41,9 @@ Environment variables in `docker-compose.yml` wire these defaults to the correct
 - `CODE_MODEL` → code-generation MCP tool (`qwen3-coder:30b`)
 - `VISION_MODEL` → image-understanding MCP tool (`ministral-3:14b`)
 - `EMBEDDING_MODEL` → vector search (`qwen3-embedding:8b`)
+- `OLLAMA_AUTOSTART_MODELS` → comma-separated list of models to warm on startup (`gpt-oss:120b,qwen3-coder:30b,ministral-3:14b,qwen3-embedding:8b`)
+
+The Ollama runtime listens on port **11434** inside and outside the Docker network. Cached models listed in `OLLAMA_AUTOSTART_MODELS` are warmed automatically when the container starts so the agents can issue requests immediately without waiting for first-token load.
 
 > Models are pulled automatically into the Ollama volume with `./model_download.sh`.
 
