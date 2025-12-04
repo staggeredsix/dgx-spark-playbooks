@@ -383,6 +383,46 @@ export default function QuerySection({
     }
   }, []);
 
+  const sendMessage = useCallback(async (message: string) => {
+    const ws = wsRef.current;
+
+    if (!ws) {
+      throw new Error("WebSocket connection is not available");
+    }
+
+    const payload = JSON.stringify({ message });
+
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(payload);
+      return;
+    }
+
+    if (ws.readyState === WebSocket.CONNECTING) {
+      await new Promise<void>((resolve, reject) => {
+        const handleOpen = () => {
+          try {
+            ws.send(payload);
+            resolve();
+          } catch (err) {
+            reject(err);
+          }
+        };
+
+        const handleError = (event: Event) => {
+          const errorEvent = event as ErrorEvent;
+          reject(new Error(errorEvent.message || "WebSocket connection error"));
+        };
+
+        ws.addEventListener("open", handleOpen, { once: true });
+        ws.addEventListener("error", handleError, { once: true });
+      });
+
+      return;
+    }
+
+    throw new Error("WebSocket is not open");
+  }, []);
+
   // Handle scroll events to detect user scrolling
   useEffect(() => {
     const container = chatContainerRef.current;
@@ -443,10 +483,8 @@ export default function QuerySection({
     hasAssistantContent.current = false;
 
     try {
-      wsRef.current.send(JSON.stringify({
-        message: currentQuery
-      }));
- 
+      await sendMessage(currentQuery);
+
       setResponse(prev => {
         try {
           const messages = JSON.parse(prev);
