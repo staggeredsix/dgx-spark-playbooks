@@ -12,6 +12,11 @@ cleanup() {
 trap cleanup INT TERM
 
 until /bin/ollama list >/dev/null 2>&1; do
+  if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+    echo "Ollama daemon exited unexpectedly; aborting startup." >&2
+    wait "$SERVER_PID"
+    exit 1
+  fi
   echo "Waiting for Ollama to become ready..."
   sleep 2
 done
