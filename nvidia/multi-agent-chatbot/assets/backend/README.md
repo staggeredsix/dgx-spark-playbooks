@@ -12,6 +12,11 @@ The backend handles:
 - Chat history management
 - Model Control Protocol (MCP) integration
 
+> **Note on MCP servers**
+> The MCP client (see [client.py](client.py)) still starts and connects to the configured MCP servers; the recent shift from
+> NIMs/ArangoDB to Ollama-hosted models does not change the MCP server lifecycle or tool discovery. The WebSocket/chat changes
+> only affect how the frontend reaches the FastAPI backend and do not alter MCP tooling.
+
 ## Key Features
 
 - **Multi-model support**: Integrates various LLM providers and local models
