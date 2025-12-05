@@ -224,7 +224,7 @@ class VectorStore:
             raise
 
     def _get_embedding_base_url(self) -> str:
-        base_url = os.getenv("LLM_API_BASE_URL", "http://ollama:11434/v1").rstrip("/")
+        base_url = os.getenv("LLM_API_BASE_URL", "http://localhost:11434/v1").rstrip("/")
         sanitized_url = base_url.removesuffix("/v1").removesuffix("/api")
         return sanitized_url
 
