@@ -272,7 +272,8 @@ export default function QuerySection({
         }
 
         const { protocol, host, port } = resolveBackendTarget();
-        const wsProtocol = protocol === "https" ? "wss" : "ws";
+        const isPageSecure = typeof window !== "undefined" && window.location.protocol === "https:";
+        const wsProtocol = isPageSecure || protocol === "https" || protocol === "wss" ? "wss" : "ws";
         const ws = new WebSocket(`${wsProtocol}://${host}:${port}/ws/chat/${currentChatId}`);
         wsRef.current = ws;
 
