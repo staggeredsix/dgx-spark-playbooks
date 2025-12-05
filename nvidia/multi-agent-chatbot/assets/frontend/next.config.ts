@@ -16,12 +16,25 @@
 */
 import type { NextConfig } from "next";
 
+const normalizeProtocol = (protocol?: string) => {
+  if (!protocol) return 'http';
+  return protocol.replace(/:?$/, '');
+};
+
+const backendProtocol = normalizeProtocol(
+  process.env.NEXT_PUBLIC_BACKEND_PROTOCOL || process.env.BACKEND_PROTOCOL,
+);
+const backendHost =
+  process.env.NEXT_PUBLIC_BACKEND_HOST || process.env.BACKEND_HOST || 'backend';
+const backendPort = process.env.NEXT_PUBLIC_BACKEND_PORT || process.env.BACKEND_PORT || '8000';
+const backendBase = `${backendProtocol}://${backendHost}:${backendPort}`;
+
 const nextConfig: NextConfig = {
   async rewrites() {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://backend:8000/:path*',
+        destination: `${backendBase}/:path*`,
       },
     ];
   },
