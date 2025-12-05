@@ -129,26 +129,42 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: str):
         await websocket.send_json({"type": "history", "messages": history})
         
         while True:
-            data = await websocket.receive_text()
+            try:
+                data = await websocket.receive_text()
+            except WebSocketDisconnect:
+                logger.debug(f"Client disconnected while waiting for message in chat {chat_id}")
+                break
+
             client_message = json.loads(data)
             new_message = client_message.get("message")
             image_id = client_message.get("image_id")
-            
+
             image_data = None
             if image_id:
                 image_data = await postgres_storage.get_image(image_id)
                 logger.debug(f"Retrieved image data for image_id: {image_id}, data length: {len(image_data) if image_data else 0}")
-            
+
             try:
                 async for event in agent.query(query_text=new_message, chat_id=chat_id, image_data=image_data):
                     await websocket.send_json(event)
+            except WebSocketDisconnect:
+                logger.debug(f"Client disconnected during streaming for chat {chat_id}")
+                break
             except Exception as query_error:
                 logger.error(f"Error in agent.query: {str(query_error)}", exc_info=True)
-                await websocket.send_json({"type": "error", "content": f"Error processing request: {str(query_error)}"})
-        
+                try:
+                    await websocket.send_json({"type": "error", "content": f"Error processing request: {str(query_error)}"})
+                except WebSocketDisconnect:
+                    logger.debug(f"Client disconnected while sending error for chat {chat_id}")
+                    break
+
             final_messages = await postgres_storage.get_messages(chat_id)
             final_history = [postgres_storage._message_to_dict(msg) for i, msg in enumerate(final_messages) if i != 0]
-            await websocket.send_json({"type": "history", "messages": final_history})
+            try:
+                await websocket.send_json({"type": "history", "messages": final_history})
+            except WebSocketDisconnect:
+                logger.debug(f"Client disconnected while sending history for chat {chat_id}")
+                break
             
     except WebSocketDisconnect:
         logger.debug(f"Client disconnected from chat {chat_id}")

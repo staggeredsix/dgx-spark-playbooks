@@ -294,8 +294,8 @@ class ChatAgent:
         })
         await self.stream_callback({'type': 'node_start', 'data': 'generate'})
 
-        supports_tools = self.current_model in {"gpt-oss-20b", "gpt-oss-120b"}
-        has_tools = supports_tools and self.openai_tools and len(self.openai_tools) > 0
+        supports_tools = bool(self.openai_tools)
+        has_tools = supports_tools and len(self.openai_tools) > 0
         
         logger.debug({
             "message": "Tool calling debug info",
