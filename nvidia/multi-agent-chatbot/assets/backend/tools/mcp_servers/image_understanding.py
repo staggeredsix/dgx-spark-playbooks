@@ -126,6 +126,29 @@ def _prepare_image_content(img: str):
     raise ValueError(f'Invalid image type -- could not be identified as a url or filepath: {img}')
 
 
+def _ensure_vision_model_ready():
+    """Eagerly start the VLM service before sending a chat completion."""
+
+    root_url = model_base_url.removesuffix("/v1")
+    try:
+        response = requests.post(
+            f"{root_url}/api/show",
+            json={"name": model_name},
+            timeout=10,
+        )
+        if response.status_code == 200:
+            return
+
+        pull_response = requests.post(
+            f"{root_url}/api/pull",
+            json={"name": model_name, "stream": False},
+            timeout=120,
+        )
+        pull_response.raise_for_status()
+    except Exception as exc:
+        print(f"Warning: unable to proactively start VLM {model_name}: {exc}")
+
+
 @mcp.tool()
 def explain_image(query: str, image: str | list[str]):
     """Analyze one or more images/videos (as frames) to answer the query."""
@@ -149,11 +172,12 @@ def explain_image(query: str, image: str | list[str]):
             "content": contents
         }
     ]
-    
+
     last_error = None
     for attempt in range(3):
         try:
             print(f"Sending request to vision model (attempt {attempt + 1}/3): {query}")
+            _ensure_vision_model_ready()
             response = model_client.chat.completions.create(
                 model=model_name,
                 messages=message,
