@@ -18,11 +18,17 @@
 from __future__ import annotations
 
 import os
+import sys
 import textwrap
+from pathlib import Path
 from typing import Dict, List, Tuple
 
 import requests
 from mcp.server.fastmcp import FastMCP
+
+project_root = Path(__file__).resolve().parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.append(str(project_root))
 
 from config import ConfigManager
 
@@ -91,7 +97,7 @@ class TavilyClient:
 
 
 def _get_config_path() -> str:
-    return os.path.join(os.path.dirname(__file__), "../../config.json")
+    return str(project_root / "config.json")
 
 
 tavily_client = TavilyClient(_get_config_path())
