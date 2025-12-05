@@ -249,6 +249,18 @@
   flex-direction: column;
 }
 
+.inlineCheckbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
+  color: #4a5568;
+}
+
+:global(.dark) .inlineCheckbox {
+  color: #e5e7eb;
+}
+
 .configItem label {
   font-size: 0.875rem;
   color: #4a5568;
@@ -257,6 +269,36 @@
 
 :global(.dark) .configItem label {
   color: #e5e7eb;
+}
+
+.apiKeyRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.apiKeyInput {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  background-color: #f9fafb;
+  color: #1f2937;
+}
+
+:global(.dark) .apiKeyInput {
+  background-color: #374151;
+  border-color: #4b5563;
+  color: #e5e7eb;
+}
+
+.hint {
+  font-size: 0.8rem;
+  color: #718096;
+}
+
+:global(.dark) .hint {
+  color: #9ca3af;
 }
 
 .select {
@@ -539,6 +581,15 @@ input:checked + .toggleSlider:before {
   flex-direction: column;
   gap: 8px;
   margin-top: 8px;
+}
+
+.saveStatus {
+  font-size: 0.85rem;
+  color: #4a5568;
+}
+
+:global(.dark) .saveStatus {
+  color: #e5e7eb;
 }
 
 .uploadDocumentsButton {

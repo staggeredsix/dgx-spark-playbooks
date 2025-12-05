@@ -346,10 +346,11 @@
 
 .inputContainer {
   display: flex;
+  align-items: flex-end;
+  gap: 12px;
   padding: 12px 16px 4px 16px;
   position: relative;
   justify-content: center;
-  align-items: center;
   background-color: #f9fafb;
   margin-top: 0;
   margin-bottom: 0;
@@ -359,7 +360,6 @@
   animation: messageAppear 0.8s ease forwards;
   animation-delay: 0.8s;
   transition: all 0.3s ease;
-  gap: 12px;
 }
 
 :global(.dark) .inputContainer {
@@ -370,18 +370,10 @@
 .inputWrapper {
   position: relative;
   display: flex;
-  align-items: center;
-  width: 100%;
-  max-width: 600px;
-}
-
-.attachmentRow {
-  width: 100%;
-  max-width: 600px;
-  display: flex;
   flex-direction: column;
-  gap: 8px;
   align-items: flex-start;
+  width: 100%;
+  max-width: 720px;
 }
 
 .hiddenInput {
@@ -389,6 +381,7 @@
 }
 
 .attachButton {
+  flex-shrink: 0;
   padding: 8px 14px;
   border-radius: 12px;
   border: 1px solid #e2e8f0;
@@ -448,7 +441,6 @@
 
 .messageInput {
   width: 100%;
-  max-width: 600px;
   padding: 12px 50px 12px 16px;
   border: 1px solid #e2e8f0;
   border-radius: 20px;
@@ -522,10 +514,7 @@
   border: none;
   cursor: pointer;
   color: white;
-  position: absolute;
-  right: calc(50% - 280px);
-  top: 50%;
-  transform: translateY(-50%);
+  position: static;
   opacity: 0;
   visibility: hidden;
   padding: 0;
@@ -623,12 +612,16 @@
   }
   
   .messageInput {
-    max-width: 85%;
+    max-width: 100%;
   }
-  
-  .sendButton, .streamingCancelButton {
-    right: 25px;
-  }
+}
+
+.attachmentMeta {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 
 .querySection {

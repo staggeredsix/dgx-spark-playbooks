@@ -53,7 +53,9 @@ class ConfigManager:
                 models=models,
                 selected_model=models[0] if models else None,
                 selected_sources=[],
-                current_chat_id=None
+                current_chat_id=None,
+                tavily_enabled=False,
+                tavily_api_key=None,
             )
             
             with open(self.config_path, "w") as f:
@@ -80,7 +82,9 @@ class ConfigManager:
                     models=models,
                     selected_model=models[0] if models else None,
                     selected_sources=[],
-                    current_chat_id=None
+                    current_chat_id=None,
+                    tavily_enabled=False,
+                    tavily_api_key=None,
                 )
                 with open(self.config_path, "w") as f:
                     json.dump(default_config.model_dump(), f, indent=2)
@@ -109,7 +113,9 @@ class ConfigManager:
                         models=models,
                         selected_model=models[0] if models else "gpt-oss-120b",
                         selected_sources=[],
-                        current_chat_id="1"
+                        current_chat_id="1",
+                        tavily_enabled=False,
+                        tavily_api_key=None,
                     )
                 return self.config
 
@@ -145,7 +151,15 @@ class ConfigManager:
     def get_current_chat_id(self) -> str:
         """Return the current chat id."""
         self.config = self.read_config()
-        return self.config.current_chat_id  
+        return self.config.current_chat_id
+
+    def get_tavily_settings(self) -> dict:
+        """Return the Tavily enablement flag and API key."""
+        self.config = self.read_config()
+        return {
+            "enabled": bool(self.config.tavily_enabled),
+            "api_key": self.config.tavily_api_key,
+        }
     
     
     def updated_selected_sources(self, new_sources: List[str]) -> None:
@@ -162,4 +176,14 @@ class ConfigManager:
     def updated_current_chat_id(self, new_chat_id: str) -> None:
         """Update the current chat id in the config."""
         self.config = self.read_config().model_copy(update={"current_chat_id": new_chat_id})
+        self.write_config(self.config)
+
+    def update_tavily_settings(self, enabled: bool, api_key: str | None) -> None:
+        """Update Tavily enablement and API key settings in the config."""
+        self.config = self.read_config().model_copy(
+            update={
+                "tavily_enabled": enabled,
+                "tavily_api_key": api_key,
+            }
+        )
         self.write_config(self.config)

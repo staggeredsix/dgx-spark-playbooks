@@ -36,7 +36,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from agent import ChatAgent
 from config import ConfigManager
 from logger import logger, log_request, log_response, log_error
-from models import ChatIdRequest, ChatRenameRequest, SelectedModelRequest
+from models import ChatIdRequest, ChatRenameRequest, SelectedModelRequest, TavilySettingsRequest
 from postgres_storage import PostgreSQLConversationStorage
 from utils import process_and_ingest_files_background
 from utils_media import (
@@ -329,6 +329,25 @@ async def update_selected_model(request: SelectedModelRequest):
         return {"status": "success", "message": "Selected model updated successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating selected model: {str(e)}")
+
+
+@app.get("/tavily")
+async def get_tavily_settings():
+    """Return the Tavily configuration settings."""
+    try:
+        return config_manager.get_tavily_settings()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting Tavily settings: {str(e)}")
+
+
+@app.post("/tavily")
+async def update_tavily_settings(request: TavilySettingsRequest):
+    """Update Tavily enablement and API key."""
+    try:
+        config_manager.update_tavily_settings(request.enabled, request.api_key)
+        return {"status": "success", "message": "Tavily settings updated successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating Tavily settings: {str(e)}")
 
 
 @app.get("/available_models")
