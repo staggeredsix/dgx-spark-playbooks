@@ -245,6 +245,23 @@ export default function QuerySection({
     fetchSelectedSources();
   }, []);
 
+  const resolveBackendTarget = useCallback(() => {
+    const normalizeProtocol = (protocol?: string) => {
+      if (!protocol) return "";
+      return protocol.replace(/:?$/, "");
+    };
+
+    const protocol = normalizeProtocol(process.env.NEXT_PUBLIC_BACKEND_PROTOCOL)
+      || window.location.protocol.replace(/:?$/, "");
+
+    const envHost = process.env.NEXT_PUBLIC_BACKEND_HOST;
+    const host = envHost && envHost !== "backend" ? envHost : window.location.hostname;
+
+    const port = process.env.NEXT_PUBLIC_BACKEND_PORT || "8000";
+
+    return { protocol, host, port };
+  }, []);
+
   useEffect(() => {
     const initWebSocket = async () => {
       if (!currentChatId) return;
@@ -254,10 +271,10 @@ export default function QuerySection({
           wsRef.current.close();
         }
 
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsHost = process.env.NEXT_PUBLIC_BACKEND_HOST || window.location.hostname;
-        const wsPort = process.env.NEXT_PUBLIC_BACKEND_PORT || '8000';
-        const ws = new WebSocket(`${wsProtocol}//${wsHost}:${wsPort}/ws/chat/${currentChatId}`);
+        const { protocol, host, port } = resolveBackendTarget();
+        const isPageSecure = typeof window !== "undefined" && window.location.protocol === "https:";
+        const wsProtocol = isPageSecure || protocol === "https" || protocol === "wss" ? "wss" : "ws";
+        const ws = new WebSocket(`${wsProtocol}://${host}:${port}/ws/chat/${currentChatId}`);
         wsRef.current = ws;
 
         ws.onmessage = (event) => {
@@ -352,7 +369,7 @@ export default function QuerySection({
         wsRef.current.close();
       }
     };
-  }, [currentChatId]);
+  }, [currentChatId, resolveBackendTarget]);
 
   useEffect(() => {
     const messages = normalizeMessages(response);
@@ -400,12 +417,9 @@ export default function QuerySection({
   }, []);
 
   const getBackendBaseUrl = useCallback(() => {
-    const rawProtocol = process.env.NEXT_PUBLIC_BACKEND_PROTOCOL || window.location.protocol;
-    const protocol = rawProtocol.endsWith(':') ? rawProtocol.slice(0, -1) : rawProtocol;
-    const host = process.env.NEXT_PUBLIC_BACKEND_HOST || window.location.hostname;
-    const port = process.env.NEXT_PUBLIC_BACKEND_PORT || "8000";
+    const { protocol, host, port } = resolveBackendTarget();
     return `${protocol}://${host}:${port}`;
-  }, []);
+  }, [resolveBackendTarget]);
 
 
   const sendMessage = useCallback(async (payload: Record<string, unknown>) => {
