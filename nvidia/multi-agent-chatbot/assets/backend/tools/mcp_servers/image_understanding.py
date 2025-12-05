@@ -43,9 +43,13 @@ mcp = FastMCP("image-understanding-server")
 
 
 model_name = os.getenv("VISION_MODEL", "ministral-3:14b")
+model_base_url = os.getenv(
+    "VISION_LLM_API_BASE_URL",
+    os.getenv("LLM_API_BASE_URL", "http://localhost:11434/v1"),
+)
 model_client = OpenAI(
-    base_url=os.getenv("LLM_API_BASE_URL", "http://localhost:11434/v1"),
-    api_key=os.getenv("LLM_API_KEY", "ollama")
+    base_url=model_base_url,
+    api_key=os.getenv("LLM_API_KEY", "ollama"),
 )
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "postgres")
 POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", 5432))
@@ -105,19 +109,32 @@ def explain_image(query: str, image: str):
         }
     ]
     
-    try:
-        print(f"Sending request to vision model: {query}")
-        response = model_client.chat.completions.create(
-            model=model_name,
-            messages=message,
-            max_tokens=512,
-            temperature=0.1
-        )
-        print(f"Received response from vision model")
-        return response.choices[0].message.content
-    except Exception as e:
-        print(f"Error calling vision model: {e}")
-        raise RuntimeError(f"Failed to process image with vision model: {e}")
+    last_error = None
+    for attempt in range(3):
+        try:
+            print(f"Sending request to vision model (attempt {attempt + 1}/3): {query}")
+            response = model_client.chat.completions.create(
+                model=model_name,
+                messages=message,
+                max_tokens=512,
+                temperature=0.1,
+            )
+            print("Received response from vision model")
+            return response.choices[0].message.content
+        except Exception as e:
+            last_error = str(e)
+            print(f"Error calling vision model on attempt {attempt + 1}: {e}")
+            if attempt < 2:
+                backoff = min(2 ** attempt, 4)
+                time.sleep(backoff)
+
+    error_message = (
+        "Vision model is currently unreachable. "
+        "Please verify the VLM service and try again."
+    )
+    if last_error:
+        error_message += f" Last error: {last_error}"
+    return error_message
 
 if __name__ == "__main__":
     print(f'running {mcp.name} MCP server')
