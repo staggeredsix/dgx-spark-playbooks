@@ -55,6 +55,9 @@ class VectorStore:
             self.embeddings = embeddings or OllamaEmbeddings(
                 model=os.getenv("EMBEDDING_MODEL", "qwen3-embedding:8b"),
                 base_url=self._get_embedding_base_url(),
+                # Ensure generation-only options (e.g., mirostat) aren't forwarded
+                # to the embeddings endpoint, which results in noisy warnings.
+                options={},
             )
             self.on_source_deleted = on_source_deleted
             self._initialize_store()
