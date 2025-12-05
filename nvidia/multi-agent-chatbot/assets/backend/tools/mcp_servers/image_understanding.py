@@ -44,7 +44,7 @@ mcp = FastMCP("image-understanding-server")
 
 model_name = os.getenv("VISION_MODEL", "ministral-3:14b")
 model_client = OpenAI(
-    base_url=os.getenv("LLM_API_BASE_URL", "http://ollama:11434/v1"),
+    base_url=os.getenv("LLM_API_BASE_URL", "http://localhost:11434/v1"),
     api_key=os.getenv("LLM_API_KEY", "ollama")
 )
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "postgres")
