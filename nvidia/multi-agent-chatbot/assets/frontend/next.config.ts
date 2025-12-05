@@ -24,7 +24,8 @@ const normalizeProtocol = (protocol?: string) => {
 const backendProtocol = normalizeProtocol(
   process.env.NEXT_PUBLIC_BACKEND_PROTOCOL || process.env.BACKEND_PROTOCOL,
 );
-const backendHost = process.env.NEXT_PUBLIC_BACKEND_HOST || process.env.BACKEND_HOST || 'localhost';
+const backendHost =
+  process.env.NEXT_PUBLIC_BACKEND_HOST || process.env.BACKEND_HOST || 'backend';
 const backendPort = process.env.NEXT_PUBLIC_BACKEND_PORT || process.env.BACKEND_PORT || '8000';
 const backendBase = `${backendProtocol}://${backendHost}:${backendPort}`;
 
