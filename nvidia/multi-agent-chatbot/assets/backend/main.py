@@ -197,9 +197,9 @@ async def _store_media(upload: UploadFile) -> str:
 
 @app.post("/upload-image")
 @app.post("/upload-media")
-async def upload_media(image: UploadFile = File(...), chat_id: str = Form(...)):
+async def upload_media(media: UploadFile = File(...), chat_id: str = Form(...)):
     """Upload and store image or video content for chat processing."""
-    media_id = await _store_media(image)
+    media_id = await _store_media(media)
     return {"image_id": media_id}
 
 
