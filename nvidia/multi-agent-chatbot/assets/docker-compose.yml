@@ -69,10 +69,10 @@ services:
     restart: unless-stopped
     environment:
       - NEXT_PUBLIC_BACKEND_PROTOCOL=${BACKEND_PROTOCOL:-http}
-      - NEXT_PUBLIC_BACKEND_HOST=${BACKEND_HOST:-localhost}
+      - NEXT_PUBLIC_BACKEND_HOST=${BACKEND_HOST:-backend}
       - NEXT_PUBLIC_BACKEND_PORT=${BACKEND_PORT:-8000}
       - BACKEND_PROTOCOL=${BACKEND_PROTOCOL:-http}
-      - BACKEND_HOST=${BACKEND_HOST:-localhost}
+      - BACKEND_HOST=${BACKEND_HOST:-backend}
       - BACKEND_PORT=${BACKEND_PORT:-8000}
 
 
