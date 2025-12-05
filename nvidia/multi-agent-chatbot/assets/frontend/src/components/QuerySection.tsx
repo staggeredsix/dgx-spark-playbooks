@@ -407,6 +407,7 @@ export default function QuerySection({
     return `${protocol}://${host}:${port}`;
   }, []);
 
+
   const sendMessage = useCallback(async (payload: Record<string, unknown>) => {
     const ws = wsRef.current;
 
@@ -518,7 +519,7 @@ export default function QuerySection({
         setAttachmentError(null);
 
         try {
-          const uploadResponse = await fetch(`${getBackendBaseUrl()}/upload-media`, {
+          const uploadResponse = await fetch("/api/upload-media", {
             method: "POST",
             body: formData
           });
@@ -533,6 +534,9 @@ export default function QuerySection({
         } catch (error) {
           console.error("Attachment upload failed:", error);
           setAttachmentError((error as Error).message || "Attachment upload failed");
+          setIsStreaming(false);
+          setQuery(currentQuery);
+          return;
         } finally {
           setIsUploadingAttachment(false);
           setAttachment(null);
@@ -542,7 +546,12 @@ export default function QuerySection({
         }
       }
 
-      await sendMessage({ message: currentQuery, media_id: mediaId });
+      const payload: Record<string, unknown> = { message: currentQuery };
+      if (mediaId) {
+        payload.media_id = mediaId;
+      }
+
+      await sendMessage(payload);
 
       setResponse(prev => {
         const messages = normalizeMessages(prev);
