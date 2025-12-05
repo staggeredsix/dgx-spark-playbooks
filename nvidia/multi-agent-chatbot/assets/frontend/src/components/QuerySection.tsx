@@ -666,40 +666,22 @@ export default function QuerySection({
       </div>
 
       <form onSubmit={handleQuerySubmit} className={styles.inputContainer}>
-        <div className={styles.attachmentRow}>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,video/*"
-            onChange={handleAttachmentChange}
-            className={styles.hiddenInput}
-            aria-label="Upload image or video"
-          />
-          <button
-            type="button"
-            className={styles.attachButton}
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isStreaming || isUploadingAttachment}
-          >
-            {isUploadingAttachment ? "Uploading…" : "Attach image or video"}
-          </button>
-          {attachment && (
-            <div className={styles.attachmentInfo}>
-              <span className={styles.attachmentName}>{attachment.name}</span>
-              <button
-                type="button"
-                className={styles.removeAttachment}
-                onClick={clearAttachment}
-                aria-label="Remove attachment"
-              >
-                ✕
-              </button>
-            </div>
-          )}
-          {attachmentError && (
-            <div className={styles.attachmentError}>{attachmentError}</div>
-          )}
-        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,video/*"
+          onChange={handleAttachmentChange}
+          className={styles.hiddenInput}
+          aria-label="Upload image or video"
+        />
+        <button
+          type="button"
+          className={styles.attachButton}
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isStreaming || isUploadingAttachment}
+        >
+          {isUploadingAttachment ? "Uploading…" : "Attach image or video"}
+        </button>
 
         <div className={styles.inputWrapper}>
           <textarea
@@ -716,6 +698,24 @@ export default function QuerySection({
               }
             }}
           />
+          <div className={styles.attachmentMeta}>
+            {attachment && (
+              <div className={styles.attachmentInfo}>
+                <span className={styles.attachmentName}>{attachment.name}</span>
+                <button
+                  type="button"
+                  className={styles.removeAttachment}
+                  onClick={clearAttachment}
+                  aria-label="Remove attachment"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+            {attachmentError && (
+              <div className={styles.attachmentError}>{attachmentError}</div>
+            )}
+          </div>
         </div>
         {!isStreaming ? (
           <button
@@ -726,9 +726,9 @@ export default function QuerySection({
             →
           </button>
         ) : (
-          <button 
-            type="button" 
-            onClick={handleCancelStream} 
+          <button
+            type="button"
+            onClick={handleCancelStream}
             className={`${styles.streamingCancelButton} ${showButtons ? styles.show : ''}`}
           >
             ✕

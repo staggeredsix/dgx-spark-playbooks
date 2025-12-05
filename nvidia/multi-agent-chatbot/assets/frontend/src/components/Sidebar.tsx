@@ -55,6 +55,10 @@ export default function Sidebar({
   const [chats, setChats] = useState<string[]>([]);
   const [isLoadingChats, setIsLoadingChats] = useState(false);
   const [chatMetadata, setChatMetadata] = useState<Record<string, ChatMetadata>>({});
+  const [tavilyEnabled, setTavilyEnabled] = useState(false);
+  const [tavilyApiKey, setTavilyApiKey] = useState("");
+  const [isSavingTavily, setIsSavingTavily] = useState(false);
+  const [tavilyStatus, setTavilyStatus] = useState<string | null>(null);
   
   // Add ref for chat list
   const chatListRef = useRef<HTMLDivElement>(null);
@@ -78,6 +82,8 @@ export default function Sidebar({
           const { sources } = await sourcesResponse.json();
           setSelectedSources(sources);
         }
+
+        await fetchTavilySettings();
 
 
         // Get available models
@@ -492,6 +498,48 @@ export default function Sidebar({
     }
   };
 
+  const fetchTavilySettings = useCallback(async () => {
+    try {
+      const response = await fetch("/api/tavily");
+      if (!response.ok) return;
+
+      const data = await response.json();
+      setTavilyEnabled(Boolean(data.enabled));
+      setTavilyApiKey(data.api_key || "");
+    } catch (error) {
+      console.error("Error fetching Tavily settings:", error);
+    }
+  }, []);
+
+  const handleSaveTavily = async (event?: React.FormEvent) => {
+    event?.preventDefault();
+    setIsSavingTavily(true);
+    setTavilyStatus(null);
+
+    try {
+      const response = await fetch("/api/tavily", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled: tavilyEnabled,
+          api_key: tavilyApiKey.trim() || null
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || "Failed to save Tavily settings");
+      }
+
+      setTavilyStatus("Saved Tavily settings");
+    } catch (error) {
+      console.error("Error saving Tavily settings:", error);
+      setTavilyStatus("Unable to save Tavily settings. Please try again.");
+    } finally {
+      setIsSavingTavily(false);
+    }
+  };
+
   return (
     <>
       <button 
@@ -553,8 +601,8 @@ export default function Sidebar({
             
             {/* Context */}
             <div className={styles.sidebarSection}>
-              <div 
-                className={styles.sectionHeader} 
+              <div
+                className={styles.sectionHeader}
                 onClick={() => toggleSection('context')}
               >
                 <h3>Context</h3>
@@ -615,7 +663,56 @@ export default function Sidebar({
                 </div>
               </div>
             </div>
-            
+
+            {/* Tavily */}
+            <div className={styles.sidebarSection}>
+              <div
+                className={styles.sectionHeader}
+                onClick={() => toggleSection('tavily')}
+              >
+                <h3>Web Search</h3>
+                <span className={isSectionExpanded('tavily') ? styles.arrowUp : styles.arrowDown}>▼</span>
+              </div>
+              <div className={`${styles.sectionContent} ${isSectionExpanded('tavily') ? styles.expanded : ''}`}>
+                <form className={styles.configItem} onSubmit={handleSaveTavily}>
+                  <label className={styles.inlineCheckbox}>
+                    <input
+                      type="checkbox"
+                      checked={tavilyEnabled}
+                      onChange={(event) => setTavilyEnabled(event.target.checked)}
+                    />
+                    <span>Enable Tavily Access</span>
+                  </label>
+
+                  {tavilyEnabled && (
+                    <div className={styles.apiKeyRow}>
+                      <label htmlFor="tavily-api-key">Tavily API Key</label>
+                      <input
+                        id="tavily-api-key"
+                        type="password"
+                        value={tavilyApiKey}
+                        onChange={(event) => setTavilyApiKey(event.target.value)}
+                        className={styles.apiKeyInput}
+                        placeholder="Enter Tavily API key"
+                      />
+                      <div className={styles.hint}>Saved securely in your local config for reuse.</div>
+                    </div>
+                  )}
+
+                  <div className={styles.buttonGroup}>
+                    <button
+                      type="submit"
+                      className={styles.refreshButton}
+                      disabled={isSavingTavily || (tavilyEnabled && !tavilyApiKey.trim())}
+                    >
+                      {isSavingTavily ? "Saving..." : "Save"}
+                    </button>
+                    {tavilyStatus && <div className={styles.saveStatus}>{tavilyStatus}</div>}
+                  </div>
+                </form>
+              </div>
+            </div>
+
             {/* Chat History */}
             <div className={styles.sidebarSection}>
               <div 

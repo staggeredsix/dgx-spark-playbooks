@@ -125,32 +125,33 @@ def process_uploaded_media(file: UploadFile) -> List[str]:
 
 
 def collect_remote_media_from_text(text: str) -> List[str]:
-    """Download image or video URLs embedded in user text and return data URIs."""
-    media_payloads: List[str] = []
+    """Collect HTTP/HTTPS media URLs referenced in the text.
+
+    Instead of inlining remote assets as base64 data URIs (which inflates payloads
+    and can overwhelm the WebSocket pipeline), we validate URLs are reachable and
+    under the size cap and then return the URLs directly. The vision model will
+    fetch the media remotely, keeping the client/server messages compact.
+    """
+    media_urls: List[str] = []
 
     for match in MEDIA_URL_PATTERN.findall(text):
         try:
-            response = _download_url(match)
-            mime = (response.headers.get("Content-Type") or "").split(";")[0]
+            # Perform a lightweight HEAD request to validate reachability and size
+            response = requests.head(match, allow_redirects=True, timeout=10)
+            response.raise_for_status()
 
-            if mime.startswith("image/"):
-                media_payloads.append(_to_data_uri(response.content, mime))
-            elif mime.startswith("video/"):
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".bin") as tmp:
-                    tmp.write(response.content)
-                    tmp_path = Path(tmp.name)
-                try:
-                    media_payloads.extend(_extract_video_frames(tmp_path))
-                finally:
-                    try:
-                        os.remove(tmp_path)
-                    except OSError:
-                        pass
+            content_length = response.headers.get("Content-Length")
+            if content_length and int(content_length) > MAX_DOWNLOAD_SIZE:
+                continue
+
+            media_type = (response.headers.get("Content-Type") or "").split(";")[0]
+            if media_type.startswith("image/") or media_type.startswith("video/"):
+                media_urls.append(match)
         except Exception:
-            # Skip URLs we cannot download or parse; don't block the chat flow
+            # Skip URLs we cannot reach or validate; don't block the chat flow
             continue
 
-    return media_payloads
+    return media_urls
 
 
 def merge_media_payloads(*payloads: Iterable[str] | Sequence[str] | str | None) -> List[str]:

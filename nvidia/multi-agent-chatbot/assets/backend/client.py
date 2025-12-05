@@ -56,6 +56,11 @@ class MCPClient:
                 "command": "python",
                 "args": ["tools/mcp_servers/weather_test.py"],
                 "transport": "stdio",
+            },
+            "tavily-server": {
+                "command": "python",
+                "args": ["tools/mcp_servers/tavily_search.py"],
+                "transport": "stdio",
             }
         }
         self.mcp_client: MultiServerMCPClient | None = None

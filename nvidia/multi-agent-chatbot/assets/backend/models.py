@@ -23,6 +23,8 @@ class ChatConfig(BaseModel):
     selected_model: Optional[str] = None
     selected_sources: Optional[List[str]] = None
     current_chat_id: Optional[str] = None
+    tavily_enabled: bool = False
+    tavily_api_key: Optional[str] = None
 
 class ChatIdRequest(BaseModel):
     chat_id: str
@@ -32,4 +34,9 @@ class ChatRenameRequest(BaseModel):
     new_name: str
 
 class SelectedModelRequest(BaseModel):
-    model: str      
+    model: str
+
+
+class TavilySettingsRequest(BaseModel):
+    enabled: bool
+    api_key: Optional[str] = None
