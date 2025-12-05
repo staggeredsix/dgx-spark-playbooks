@@ -236,9 +236,11 @@ class ChatAgent:
             await self.stream_callback({'type': 'tool_start', 'data': tool_call["name"]})
             
             try:
-                if tool_call["name"] == "explain_image" and state.get("image_data"):
+                if tool_call["name"] == "explain_image":
                     tool_args = tool_call["args"].copy()
-                    tool_args["image"] = state["image_data"]
+                    merged_media = merge_media_payloads(tool_args.get("image"), state.get("image_data"))
+                    if merged_media:
+                        tool_args["image"] = merged_media
                     logger.info(f'Executing tool {tool_call["name"]} with args: {tool_args}')
                     tool_result = await self.tools_by_name[tool_call["name"]].ainvoke(tool_args)
                     state["process_image_used"] = True
