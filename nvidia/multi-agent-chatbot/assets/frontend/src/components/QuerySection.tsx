@@ -199,6 +199,25 @@ export default function QuerySection({
   const hasAssistantContent = useRef(false);
   const fadeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  const normalizeMessages = useCallback((raw: string): Message[] => {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed)
+        ? parsed.map((msg: any): Message => ({
+            type:
+              msg?.type === "HumanMessage"
+                ? "HumanMessage"
+                : msg?.type === "ToolMessage"
+                ? "ToolMessage"
+                : "AssistantMessage",
+            content: typeof msg?.content === "string" ? msg.content : String(msg?.content ?? "")
+          }))
+        : [];
+    } catch {
+      return [];
+    }
+  }, []);
+
   useEffect(() => {
     const timer = setTimeout(() => {
       setShowButtons(true);
@@ -265,18 +284,16 @@ export default function QuerySection({
                 hasAssistantContent.current = true;
               }
               setResponse(prev => {
-                try {
-                  const messages = JSON.parse(prev);
-                  const last = messages[messages.length - 1];
-                  if (last && last.type === "AssistantMessage") {
-                    last.content = String(last.content || "") + text;
-                  } else {
-                    messages.push({ type: "AssistantMessage", content: text });
-                  }
-                  return JSON.stringify(messages);
-                } catch {
-                  return String(prev || "") + text;
+                const messages = normalizeMessages(prev);
+                const last = messages[messages.length - 1];
+
+                if (last && last.type === "AssistantMessage") {
+                  last.content = String(last.content || "") + text;
+                } else {
+                  messages.push({ type: "AssistantMessage", content: text });
                 }
+
+                return JSON.stringify(messages);
               });
               break;
             }
@@ -334,14 +351,9 @@ export default function QuerySection({
   }, [currentChatId]);
 
   useEffect(() => {
-    try {
-      const messages = JSON.parse(response);
-      setShowWelcome(messages.length === 0);
-    } catch {
-      // If response can't be parsed as JSON, check if it's empty
-      setShowWelcome(!response.trim());
-    }
-  }, [response]);
+    const messages = normalizeMessages(response);
+    setShowWelcome(messages.length === 0);
+  }, [normalizeMessages, response]);
 
   // Show/hide pinnedToolOutput with fade
   useEffect(() => {
@@ -486,16 +498,14 @@ export default function QuerySection({
       await sendMessage(currentQuery);
 
       setResponse(prev => {
-        try {
-          const messages = JSON.parse(prev);
-          messages.push({
-            type: "HumanMessage",
-            content: currentQuery
-          });
-          return JSON.stringify(messages);
-        } catch {
-          return prev + `\n\nHuman: ${currentQuery}\n\nAssistant: `;
-        }
+        const messages = normalizeMessages(prev);
+
+        messages.push({
+          type: "HumanMessage",
+          content: currentQuery
+        });
+
+        return JSON.stringify(messages);
       });
     } catch (error) {
       console.error("Error sending message:", error);
@@ -512,27 +522,8 @@ export default function QuerySection({
   };
 
   // filter out all ToolMessages
-  const parseMessages = (response: string): Message[] => {
-    try {
-      const parsed = JSON.parse(response);
-      if (!Array.isArray(parsed)) return [];
-  
-      return parsed
-        .map((msg: any): Message => ({
-          type: msg?.type === "HumanMessage"
-            ? "HumanMessage"
-            : msg?.type === "ToolMessage"
-            ? "ToolMessage"
-            : "AssistantMessage",
-          content: typeof msg?.content === "string" ? msg.content : String(msg?.content ?? "")
-        }))
-        .filter((msg) => msg.type !== "ToolMessage"); // discard ToolMessage completely
-    } catch {
-      if (!response?.trim()) return [];
-      
-      return [{ type: "AssistantMessage", content: String(response) }];
-    }
-  };
+  const parseMessages = (response: string): Message[] =>
+    normalizeMessages(response).filter((msg) => msg.type !== "ToolMessage");
 
 
   return (
