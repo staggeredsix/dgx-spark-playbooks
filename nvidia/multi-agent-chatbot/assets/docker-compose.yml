@@ -62,11 +62,18 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - /frontend:/app/frontend
+      - ./frontend:/app
       - /app/node_modules
     depends_on:
       - backend
     restart: unless-stopped
+    environment:
+      - NEXT_PUBLIC_BACKEND_PROTOCOL=${BACKEND_PROTOCOL:-http}
+      - NEXT_PUBLIC_BACKEND_HOST=${BACKEND_HOST:-localhost}
+      - NEXT_PUBLIC_BACKEND_PORT=${BACKEND_PORT:-8000}
+      - BACKEND_PROTOCOL=${BACKEND_PROTOCOL:-http}
+      - BACKEND_HOST=${BACKEND_HOST:-localhost}
+      - BACKEND_PORT=${BACKEND_PORT:-8000}
 
 
   postgres:

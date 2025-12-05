@@ -400,10 +400,11 @@ export default function QuerySection({
   }, []);
 
   const getBackendBaseUrl = useCallback(() => {
-    const protocol = process.env.NEXT_PUBLIC_BACKEND_PROTOCOL || window.location.protocol;
+    const rawProtocol = process.env.NEXT_PUBLIC_BACKEND_PROTOCOL || window.location.protocol;
+    const protocol = rawProtocol.endsWith(':') ? rawProtocol.slice(0, -1) : rawProtocol;
     const host = process.env.NEXT_PUBLIC_BACKEND_HOST || window.location.hostname;
     const port = process.env.NEXT_PUBLIC_BACKEND_PORT || "8000";
-    return `${protocol}//${host}:${port}`;
+    return `${protocol}://${host}:${port}`;
   }, []);
 
   const sendMessage = useCallback(async (payload: Record<string, unknown>) => {
