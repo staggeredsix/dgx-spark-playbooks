@@ -33,6 +33,7 @@ from logger import logger
 from prompts import Prompts
 from postgres_storage import PostgreSQLConversationStorage
 from utils import convert_langgraph_messages_to_openai
+from utils_media import merge_media_payloads
 
 
 memory = MemorySaver()
@@ -456,7 +457,7 @@ class ChatAgent:
 
         return llm_output_buffer, tool_calls_buffer
 
-    async def query(self, query_text: str, chat_id: str, image_data: str = None) -> AsyncIterator[Dict[str, Any]]:
+    async def query(self, query_text: str, chat_id: str, image_data: str | List[str] = None) -> AsyncIterator[Dict[str, Any]]:
         """Process user query and stream response tokens.
         
         Args:
@@ -479,8 +480,12 @@ class ChatAgent:
             existing_messages = await self.conversation_store.get_messages(chat_id, limit=1)
             
             base_system_prompt = self.system_prompt
-            if image_data:
-                image_context = "\n\nIMAGE CONTEXT: The user has uploaded an image with their message. You MUST use the explain_image tool to analyze it."
+            normalized_media = merge_media_payloads(image_data)
+            if normalized_media:
+                image_context = (
+                    "\n\nIMAGE CONTEXT: The user included remote or uploaded media with their message. "
+                    "You MUST use the explain_image tool to analyze the provided media before responding."
+                )
                 system_prompt_with_image = base_system_prompt + image_context
                 messages_to_process = [SystemMessage(content=system_prompt_with_image)]
             else:
@@ -499,7 +504,7 @@ class ChatAgent:
                 "iterations": 0,
                 "chat_id": chat_id,
                 "messages": messages_to_process,
-                "image_data": image_data if image_data else None,
+                "image_data": normalized_media if normalized_media else None,
                 "process_image_used": False
             }
             

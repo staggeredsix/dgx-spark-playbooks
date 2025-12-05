@@ -24,7 +24,6 @@ This module provides the main HTTP API endpoints and WebSocket connections for:
 - Vector store operations
 """
 
-import base64
 import json
 import os
 import uuid
@@ -40,6 +39,11 @@ from logger import logger, log_request, log_response, log_error
 from models import ChatIdRequest, ChatRenameRequest, SelectedModelRequest
 from postgres_storage import PostgreSQLConversationStorage
 from utils import process_and_ingest_files_background
+from utils_media import (
+    collect_remote_media_from_text,
+    merge_media_payloads,
+    process_uploaded_media,
+)
 from vector_store import create_vector_store_with_config
 
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "postgres")
@@ -137,15 +141,20 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: str):
 
             client_message = json.loads(data)
             new_message = client_message.get("message")
-            image_id = client_message.get("image_id")
+            image_id = client_message.get("image_id") or client_message.get("media_id")
 
             image_data = None
             if image_id:
                 image_data = await postgres_storage.get_image(image_id)
-                logger.debug(f"Retrieved image data for image_id: {image_id}, data length: {len(image_data) if image_data else 0}")
+                logger.debug(
+                    f"Retrieved image data for image_id: {image_id}, data length: {len(image_data) if image_data else 0}"
+                )
+
+            remote_media = collect_remote_media_from_text(new_message or "")
+            merged_media = merge_media_payloads(image_data, remote_media)
 
             try:
-                async for event in agent.query(query_text=new_message, chat_id=chat_id, image_data=image_data):
+                async for event in agent.query(query_text=new_message, chat_id=chat_id, image_data=merged_media):
                     await websocket.send_json(event)
             except WebSocketDisconnect:
                 logger.debug(f"Client disconnected during streaming for chat {chat_id}")
@@ -172,23 +181,26 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: str):
         logger.error(f"WebSocket error for chat {chat_id}: {str(e)}", exc_info=True)
 
 
+async def _store_media(upload: UploadFile) -> str:
+    try:
+        payloads = process_uploaded_media(upload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Failed to process uploaded media") from exc
+
+    media_id = str(uuid.uuid4())
+    serialized = json.dumps({"data": payloads}) if len(payloads) > 1 else payloads[0]
+    await postgres_storage.store_image(media_id, serialized)
+    return media_id
+
+
 @app.post("/upload-image")
-async def upload_image(image: UploadFile = File(...), chat_id: str = Form(...)):
-    """Upload and store an image for chat processing.
-    
-    Args:
-        image: Uploaded image file
-        chat_id: Chat identifier for context
-        
-    Returns:
-        Dictionary with generated image_id
-    """
-    image_data = await image.read()
-    image_base64 = base64.b64encode(image_data).decode('utf-8')
-    data_uri = f"data:{image.content_type};base64,{image_base64}"
-    image_id = str(uuid.uuid4())
-    await postgres_storage.store_image(image_id, data_uri)
-    return {"image_id": image_id}
+@app.post("/upload-media")
+async def upload_media(image: UploadFile = File(...), chat_id: str = Form(...)):
+    """Upload and store image or video content for chat processing."""
+    media_id = await _store_media(image)
+    return {"image_id": media_id}
 
 
 @app.post("/ingest")

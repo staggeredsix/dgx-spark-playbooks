@@ -375,6 +375,77 @@
   max-width: 600px;
 }
 
+.attachmentRow {
+  width: 100%;
+  max-width: 600px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.hiddenInput {
+  display: none;
+}
+
+.attachButton {
+  padding: 8px 14px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background-color: #ffffff;
+  color: #111827;
+  cursor: pointer;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+  transition: all 0.2s ease;
+}
+
+:global(.dark) .attachButton {
+  background-color: #1f2937;
+  border-color: #374151;
+  color: #e5e7eb;
+}
+
+.attachButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.attachmentInfo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background-color: #f3f4f6;
+  color: #111827;
+  border: 1px solid #e5e7eb;
+}
+
+:global(.dark) .attachmentInfo {
+  background-color: #1f2937;
+  color: #e5e7eb;
+  border-color: #374151;
+}
+
+.attachmentName {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.removeAttachment {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #ef4444;
+  font-size: 16px;
+}
+
+.attachmentError {
+  color: #dc2626;
+  font-size: 14px;
+}
+
 .messageInput {
   width: 100%;
   max-width: 600px;
