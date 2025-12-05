@@ -195,6 +195,10 @@ export default function QuerySection({
   const [isPinnedToolOutputVisible, setPinnedToolOutputVisible] = useState(false);
   const [isToolContentVisible, setIsToolContentVisible] = useState(false);
   const [fadeIn, setFadeIn] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const firstTokenReceived = useRef(false);
   const hasAssistantContent = useRef(false);
   const fadeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -395,17 +399,24 @@ export default function QuerySection({
     }
   }, []);
 
-  const sendMessage = useCallback(async (message: string) => {
+  const getBackendBaseUrl = useCallback(() => {
+    const protocol = process.env.NEXT_PUBLIC_BACKEND_PROTOCOL || window.location.protocol;
+    const host = process.env.NEXT_PUBLIC_BACKEND_HOST || window.location.hostname;
+    const port = process.env.NEXT_PUBLIC_BACKEND_PORT || "8000";
+    return `${protocol}//${host}:${port}`;
+  }, []);
+
+  const sendMessage = useCallback(async (payload: Record<string, unknown>) => {
     const ws = wsRef.current;
 
     if (!ws) {
       throw new Error("WebSocket connection is not available");
     }
 
-    const payload = JSON.stringify({ message });
+    const serialized = JSON.stringify(payload);
 
     if (ws.readyState === WebSocket.OPEN) {
-      ws.send(payload);
+      ws.send(serialized);
       return;
     }
 
@@ -413,7 +424,7 @@ export default function QuerySection({
       await new Promise<void>((resolve, reject) => {
         const handleOpen = () => {
           try {
-            ws.send(payload);
+            ws.send(serialized);
             resolve();
           } catch (err) {
             reject(err);
@@ -487,7 +498,7 @@ export default function QuerySection({
   const handleQuerySubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const currentQuery = query.trim();
-    if (!currentQuery || isStreaming || !wsRef.current) return;
+    if ((!currentQuery && !attachment) || isStreaming || !wsRef.current) return;
 
     setQuery("");
     setIsStreaming(true);
@@ -495,7 +506,42 @@ export default function QuerySection({
     hasAssistantContent.current = false;
 
     try {
-      await sendMessage(currentQuery);
+      let mediaId: string | undefined;
+
+      if (attachment) {
+        const formData = new FormData();
+        formData.append("media", attachment);
+        formData.append("chat_id", currentChatId || "default-chat");
+
+        setIsUploadingAttachment(true);
+        setAttachmentError(null);
+
+        try {
+          const uploadResponse = await fetch(`${getBackendBaseUrl()}/upload-media`, {
+            method: "POST",
+            body: formData
+          });
+
+          if (!uploadResponse.ok) {
+            const message = await uploadResponse.text();
+            throw new Error(message || "Failed to upload attachment");
+          }
+
+          const data = await uploadResponse.json();
+          mediaId = data.image_id;
+        } catch (error) {
+          console.error("Attachment upload failed:", error);
+          setAttachmentError((error as Error).message || "Attachment upload failed");
+        } finally {
+          setIsUploadingAttachment(false);
+          setAttachment(null);
+          if (fileInputRef.current) {
+            fileInputRef.current.value = "";
+          }
+        }
+      }
+
+      await sendMessage({ message: currentQuery, media_id: mediaId });
 
       setResponse(prev => {
         const messages = normalizeMessages(prev);
@@ -510,6 +556,20 @@ export default function QuerySection({
     } catch (error) {
       console.error("Error sending message:", error);
       setIsStreaming(false);
+    }
+  };
+
+  const handleAttachmentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    setAttachment(file || null);
+    setAttachmentError(null);
+  };
+
+  const clearAttachment = () => {
+    setAttachment(null);
+    setAttachmentError(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
     }
   };
 
@@ -604,8 +664,43 @@ export default function QuerySection({
         )}
         <div ref={messagesEndRef} />
       </div>
-      
+
       <form onSubmit={handleQuerySubmit} className={styles.inputContainer}>
+        <div className={styles.attachmentRow}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,video/*"
+            onChange={handleAttachmentChange}
+            className={styles.hiddenInput}
+            aria-label="Upload image or video"
+          />
+          <button
+            type="button"
+            className={styles.attachButton}
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isStreaming || isUploadingAttachment}
+          >
+            {isUploadingAttachment ? "Uploading…" : "Attach image or video"}
+          </button>
+          {attachment && (
+            <div className={styles.attachmentInfo}>
+              <span className={styles.attachmentName}>{attachment.name}</span>
+              <button
+                type="button"
+                className={styles.removeAttachment}
+                onClick={clearAttachment}
+                aria-label="Remove attachment"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+          {attachmentError && (
+            <div className={styles.attachmentError}>{attachmentError}</div>
+          )}
+        </div>
+
         <div className={styles.inputWrapper}>
           <textarea
             rows={1}
@@ -623,10 +718,10 @@ export default function QuerySection({
           />
         </div>
         {!isStreaming ? (
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             className={`${styles.sendButton} ${showButtons ? styles.show : ''}`}
-            disabled={!query.trim()}
+            disabled={(!query.trim() && !attachment) || isUploadingAttachment}
           >
             →
           </button>

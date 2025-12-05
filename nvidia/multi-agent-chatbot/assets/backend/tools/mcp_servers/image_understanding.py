@@ -24,6 +24,7 @@ It supports multiple image input formats including URLs, file paths, and base64-
 import asyncio
 import base64
 import os
+import json
 import requests
 import sys
 from pathlib import Path
@@ -65,47 +66,54 @@ postgres_storage = PostgreSQLConversationStorage(
     password=POSTGRES_PASSWORD
 )
 
-@mcp.tool()
-def explain_image(query: str, image: str):
-    """
-    This tool is used to understand an image. It will respond to the user's query based on the image.
-    ...
-    """ 
-    if not image:
-        raise ValueError('Error: explain_image tool received an empty image string.')
+def _normalize_images(image: str | list[str]):
+    if isinstance(image, str):
+        try:
+            parsed = json.loads(image)
+            if isinstance(parsed, dict) and isinstance(parsed.get("data"), list):
+                return [img for img in parsed["data"] if isinstance(img, str)]
+        except json.JSONDecodeError:
+            pass
+        return [image]
+    return [img for img in image if isinstance(img, str)]
 
-    image_url_content = {}
 
-    if image.startswith("http://") or image.startswith("https://"):
-        image_url_content = {
-            "type": "image_url",
-            "image_url": {"url": image}
-        }
-    else:
-        if image.startswith("data:image/"):
-            metadata, b64_data = image.split(",", 1)
-            filetype = metadata.split(";")[0].split("/")[-1]
-        elif os.path.exists(image):
-            with open(image, "rb") as image_file:
-                filetype = image.split('.')[-1]
-                b64_data = base64.b64encode(image_file.read()).decode("utf-8")
-        else:
-            raise ValueError(f'Invalid image type -- could not be identified as a url or filepath: {image}')
-        
-        image_url_content = {
+def _prepare_image_content(img: str):
+    if img.startswith("http://") or img.startswith("https://"):
+        return {"type": "image_url", "image_url": {"url": img}}
+
+    if img.startswith("data:image/"):
+        return {"type": "image_url", "image_url": {"url": img}}
+
+    if os.path.exists(img):
+        with open(img, "rb") as image_file:
+            filetype = img.split('.')[-1]
+            b64_data = base64.b64encode(image_file.read()).decode("utf-8")
+        return {
             "type": "image_url",
             "image_url": {
                 "url": f"data:image/{filetype if filetype else 'jpeg'};base64,{b64_data}"
             }
         }
 
+    raise ValueError(f'Invalid image type -- could not be identified as a url or filepath: {img}')
+
+
+@mcp.tool()
+def explain_image(query: str, image: str | list[str]):
+    """Analyze one or more images/videos (as frames) to answer the query."""
+    images = _normalize_images(image)
+    if not images:
+        raise ValueError('Error: explain_image tool received an empty image payload.')
+
+    contents = [{"type": "text", "text": query}]
+    for img in images:
+        contents.append(_prepare_image_content(img))
+
     message = [
         {
             "role": "user",
-            "content": [
-                {"type": "text", "text": query},
-                image_url_content
-            ]
+            "content": contents
         }
     ]
     
