@@ -38,6 +38,7 @@ from openai import AsyncOpenAI, OpenAI
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 from postgres_storage import PostgreSQLConversationStorage
+from utils_media import _download_url
 
 
 mcp = FastMCP("image-understanding-server")
@@ -79,7 +80,33 @@ def _normalize_images(image: str | list[str]):
 
 
 def _prepare_image_content(img: str):
+    if not img or not isinstance(img, str):
+        raise ValueError("Empty or non-string media reference provided")
+
+    img = img.strip()
+    if not img:
+        raise ValueError("Empty media reference provided")
+
+    # Skip placeholder tokens that are sometimes injected for unprocessed media
+    if img.startswith("<<") and img.endswith(">>"):
+        raise ValueError(f"Ignoring placeholder media reference: {img}")
+
     if img.startswith("http://") or img.startswith("https://"):
+        try:
+            response = _download_url(img)
+            mime_type = (response.headers.get("Content-Type") or "image/jpeg").split(";")[0]
+            if not mime_type.startswith("image/"):
+                mime_type = "image/jpeg"
+
+            b64_data = base64.b64encode(response.content).decode("utf-8")
+            return {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{mime_type};base64,{b64_data}",
+                },
+            }
+        except Exception as exc:
+            print(f"Failed to download remote image {img}: {exc}. Passing URL directly.")
         return {"type": "image_url", "image_url": {"url": img}}
 
     if img.startswith("data:image/"):
@@ -108,7 +135,13 @@ def explain_image(query: str, image: str | list[str]):
 
     contents = [{"type": "text", "text": query}]
     for img in images:
-        contents.append(_prepare_image_content(img))
+        try:
+            contents.append(_prepare_image_content(img))
+        except Exception as exc:
+            print(f"Skipping media entry '{img}': {exc}")
+
+    if len(contents) == 1:
+        raise ValueError('Error: explain_image tool did not receive any valid media to process.')
 
     message = [
         {
