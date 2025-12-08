@@ -171,15 +171,18 @@ def _to_base64_payload(img: str | dict) -> List[str]:
     if cached:
         return [cached]
 
+    prepared_content = None
     if isinstance(img, dict):
         maybe_data = img.get("data") or img.get("image")
         if isinstance(maybe_data, str):
             img = maybe_data
+        elif isinstance(img.get("type"), str) and "image_url" in img:
+            prepared_content = img
         else:
             return []
 
     try:
-        content = _prepare_image_content(img)
+        content = prepared_content or _prepare_image_content(img)
     except Exception as exc:
         logger.warning(f"Failed to prepare media '{img}': {exc}")
         return []
