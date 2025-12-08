@@ -105,6 +105,11 @@ class WarmupManager:
                 "Nvidia_logo.svg/500px-Nvidia_logo.svg.png?20150924223142"
             )
             tool_names: Set[str] = set(self.agent.tools_by_name or {})
+            base_required_tools = tool_names - {"explain_image", "explain_video"}
+            video_frames = [
+                {"timestamp": 0, "data": tavily_image},
+                {"timestamp": 1.5, "data": tavily_image},
+            ]
 
             tests: List[Dict[str, Any]] = [
                 {
@@ -113,7 +118,7 @@ class WarmupManager:
                         "List the MCP tools you can access and run a minimal test call "
                         "for each one to confirm connectivity. Report any failures."
                     ),
-                    "required_tools": tool_names,
+                    "required_tools": base_required_tools,
                 },
                 {
                     "name": "tavily-image",
@@ -125,12 +130,31 @@ class WarmupManager:
                     "required_tools": {"tavily_search"},
                 },
                 {
+                    "name": "weather-batch",
+                    "prompt": (
+                        "Call both get_weather for San Francisco and get_rain_forecast "
+                        "for Seattle. Use the two tools separately and summarize the "
+                        "results."
+                    ),
+                    "required_tools": {"get_weather", "get_rain_forecast"},
+                },
+                {
                     "name": "vision-check",
                     "prompt": (
                         "Use the explain_image tool to fetch and describe this image: "
                         f"{tavily_image}. Provide a concise description after the tool call."
                     ),
                     "required_tools": {"explain_image"},
+                    "image_data": tavily_image,
+                },
+                {
+                    "name": "video-check",
+                    "prompt": (
+                        "Use explain_video on the provided frames to describe what the "
+                        "video shows in order by timestamp."
+                    ),
+                    "required_tools": {"explain_video"},
+                    "image_data": video_frames,
                 },
                 {
                     "name": "codegen",
@@ -148,6 +172,7 @@ class WarmupManager:
                     name=test["name"],
                     prompt=test["prompt"],
                     required_tools=test["required_tools"],
+                    image_data=test.get("image_data"),
                 )
                 self.results.append(result)
                 if not result.get("success"):
@@ -169,6 +194,7 @@ class WarmupManager:
         prompt: str,
         required_tools: Iterable[str],
         log_only: bool = False,
+        image_data: Optional[str | List[str] | List[dict] | dict] = None,
     ) -> Dict[str, Any]:
         """Send a prompt through the supervisor and capture tool usage."""
 
@@ -190,7 +216,10 @@ class WarmupManager:
 
         try:
             async for event in self.agent.query(
-                query_text=prompt, chat_id=chat_id, persist=False
+                query_text=prompt,
+                chat_id=chat_id,
+                image_data=image_data,
+                persist=False,
             ):
                 if isinstance(event, str):
                     final_message = (final_message or "") + event

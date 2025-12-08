@@ -32,15 +32,19 @@ interface SidebarProps {
   refreshTrigger?: number;
   currentChatId: string | null;
   onChatChange: (chatId: string) => Promise<void>;
+  activePane: 'chat' | 'testing';
+  setActivePane: (pane: 'chat' | 'testing') => void;
 }
 
 
 export default function Sidebar({ 
-  showIngestion, 
-  setShowIngestion, 
+  showIngestion,
+  setShowIngestion,
   refreshTrigger = 0,
   currentChatId,
-  onChatChange
+  onChatChange,
+  activePane,
+  setActivePane
 }: SidebarProps) {
   const [isVisible, setIsVisible] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
@@ -565,7 +569,32 @@ export default function Sidebar({
             <div className={styles.sidebarHeader}>
               <h2 className={styles.title}>Spark Chat</h2>
             </div>
-            
+
+            <div className={styles.quickActions}>
+              <button
+                className={`${styles.quickActionButton} ${activePane === 'chat' ? styles.quickActionActive : ''}`}
+                onClick={() => {
+                  setActivePane('chat');
+                  if (window.innerWidth < 768) {
+                    handleClose();
+                  }
+                }}
+              >
+                Chat
+              </button>
+              <button
+                className={`${styles.quickActionButton} ${activePane === 'testing' ? styles.quickActionActive : ''}`}
+                onClick={() => {
+                  setActivePane('testing');
+                  if (window.innerWidth < 768) {
+                    handleClose();
+                  }
+                }}
+              >
+                Testing
+              </button>
+            </div>
+
             {/* Model Selection */}
             <div className={styles.sidebarSection}>
               <div 
