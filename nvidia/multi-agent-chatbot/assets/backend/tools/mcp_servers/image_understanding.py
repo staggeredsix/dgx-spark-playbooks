@@ -99,7 +99,16 @@ def _normalize_video_frames(video_frames: str | list[str | dict] | dict):
     return normalized
 
 
-def _prepare_image_content(img: str):
+def _prepare_image_content(img: str | dict):
+    if isinstance(img, dict):
+        maybe_data = img.get("data") or img.get("image")
+        if isinstance(maybe_data, str):
+            img = maybe_data
+        elif isinstance(img.get("type"), str) and "image_url" in img:
+            return img
+        else:
+            raise ValueError("Empty or non-string media reference provided")
+
     if not img or not isinstance(img, str):
         raise ValueError("Empty or non-string media reference provided")
 
@@ -237,17 +246,20 @@ def _stage_video_frames(frames: list[dict]) -> list[dict]:
 
 
 @mcp.tool()
-def explain_image(query: str, image: str | list[str]):
+def explain_image(query: str, image: str | list[str | dict] | dict):
     """Analyze one or more images/videos (as frames) to answer the query."""
     images = _normalize_images(image)
     if not images:
         raise ValueError('Error: explain_image tool received an empty image payload.')
 
-    staged_payloads: list[str] = []
+    staged_contents: list[dict] = []
     for img in images:
-        staged_payloads.extend(_to_base64_payload(img))
+        try:
+            staged_contents.append(_prepare_image_content(img))
+        except Exception as exc:
+            logger.warning(f"Failed to stage media '{img}': {exc}")
 
-    if not staged_payloads:
+    if not staged_contents:
         raise ValueError('Error: explain_image tool did not receive any valid media to process.')
 
     last_error = None
@@ -259,19 +271,13 @@ def explain_image(query: str, image: str | list[str]):
                     "model": model_name,
                     "base_url": model_base_url,
                     "attempt": attempt + 1,
-                    "media_items": len(staged_payloads),
+                    "media_items": len(staged_contents),
                 }
             )
             _ensure_vision_model_ready()
             message_content = [
                 {"type": "text", "text": query},
-                *[
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{payload}"},
-                    }
-                    for payload in staged_payloads
-                ],
+                *staged_contents,
             ]
             response = model_client.chat.completions.create(
                 model=model_name,
