@@ -171,13 +171,15 @@ def collect_remote_media_from_text(text: str) -> List[str]:
             response = None
 
         try:
-            response = requests.get(match, allow_redirects=True, timeout=15, stream=True)
-            response.raise_for_status()
+            with requests.get(
+                match, allow_redirects=True, timeout=15, stream=True
+            ) as response:
+                response.raise_for_status()
 
-            # Only read minimal content to avoid large downloads; requests already
-            # buffered the headers so we can validate without consuming the body
-            if _validate_media_response(response):
-                media_urls.append(match)
+                # Only read minimal content to avoid large downloads; requests already
+                # buffered the headers so we can validate without consuming the body
+                if _validate_media_response(response):
+                    media_urls.append(match)
         except Exception:
             # Skip URLs we cannot reach or validate; don't block the chat flow
             continue
