@@ -32,6 +32,7 @@ export default function Home() {
   const [showIngestion, setShowIngestion] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  const [activePane, setActivePane] = useState<'chat' | 'testing'>('chat');
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Load initial chat ID
@@ -90,24 +91,40 @@ export default function Home() {
         refreshTrigger={refreshTrigger}
         currentChatId={currentChatId}
         onChatChange={handleChatChange}
+        activePane={activePane}
+        setActivePane={setActivePane}
       />
-      
+
       <div className={styles.mainContent}>
         <div className={styles.mainColumn}>
-          <WarmupStatus />
-          <div className={styles.chatWrapper}>
-            <QuerySection
-              query={query}
-              response={response}
-              isStreaming={isStreaming}
-              setQuery={setQuery}
-              setResponse={setResponse}
-              setIsStreaming={setIsStreaming}
-              abortControllerRef={abortControllerRef}
-              setShowIngestion={setShowIngestion}
-              currentChatId={currentChatId}
-            />
-          </div>
+          {activePane === 'testing' ? (
+            <div className={styles.testingPane}>
+              <div className={styles.testingHeader}>
+                <button
+                  type="button"
+                  className={styles.backButton}
+                  onClick={() => setActivePane('chat')}
+                >
+                  ← Back to chat
+                </button>
+              </div>
+              <WarmupStatus />
+            </div>
+          ) : (
+            <div className={styles.chatWrapper}>
+              <QuerySection
+                query={query}
+                response={response}
+                isStreaming={isStreaming}
+                setQuery={setQuery}
+                setResponse={setResponse}
+                setIsStreaming={setIsStreaming}
+                abortControllerRef={abortControllerRef}
+                setShowIngestion={setShowIngestion}
+                currentChatId={currentChatId}
+              />
+            </div>
+          )}
         </div>
       </div>
 

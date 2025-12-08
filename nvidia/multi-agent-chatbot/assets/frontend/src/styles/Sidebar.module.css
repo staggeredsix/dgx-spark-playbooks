@@ -179,6 +179,52 @@
   color: #e5e7eb;
 }
 
+.quickActions {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.quickActionButton {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #1f2937;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+:global(.dark) .quickActionButton {
+  border-color: #374151;
+  background: #1f2937;
+  color: #e5e7eb;
+}
+
+.quickActionButton:hover {
+  background: #e2e8f0;
+  border-color: #cbd5e0;
+}
+
+:global(.dark) .quickActionButton:hover {
+  background: #2d3748;
+  border-color: #4b5563;
+}
+
+.quickActionActive {
+  background: #1e40af;
+  color: #f8fafc;
+  border-color: #1e3a8a;
+}
+
+:global(.dark) .quickActionActive {
+  background: #2563eb;
+  color: #f8fafc;
+  border-color: #1d4ed8;
+}
+
 .sidebarSection {
   margin-bottom: 16px;
   border-bottom: 1px solid #e2e8f0;
