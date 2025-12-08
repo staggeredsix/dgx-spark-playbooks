@@ -199,11 +199,22 @@ class WarmupManager:
                 "https://upload.wikimedia.org/wikipedia/sco/thumb/2/21/"
                 "Nvidia_logo.svg/500px-Nvidia_logo.svg.png?20150924223142"
             )
+            inline_pixel = (
+                "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+XK6cAAAAASUVORK5CYII="
+            )
             tool_names: Set[str] = set(self.agent.tools_by_name or {})
-            base_required_tools = tool_names - {"explain_image", "explain_video"}
+            tools_with_dedicated_tests = {
+                "tavily_search",
+                "get_weather",
+                "get_rain_forecast",
+                "explain_image",
+                "explain_video",
+                "write_code",
+            }
+            untested_tools = tool_names - tools_with_dedicated_tests
             video_frames = [
-                {"timestamp": 0, "data": tavily_image},
-                {"timestamp": 1.5, "data": tavily_image},
+                {"timestamp": 0, "data": inline_pixel},
+                {"timestamp": 1.5, "data": inline_pixel},
             ]
 
             tests: List[Dict[str, Any]] = [
@@ -213,7 +224,7 @@ class WarmupManager:
                         "List the MCP tools you can access and run a minimal test call "
                         "for each one to confirm connectivity. Report any failures."
                     ),
-                    "required_tools": base_required_tools,
+                    "required_tools": set(),
                 },
                 {
                     "name": "tavily-image",
@@ -236,11 +247,11 @@ class WarmupManager:
                 {
                     "name": "vision-check",
                     "prompt": (
-                        "Use the explain_image tool to fetch and describe this image: "
-                        f"{tavily_image}. Provide a concise description after the tool call."
+                        "Use the explain_image tool to describe the attached inline image. "
+                        "Provide a concise description after the tool call."
                     ),
                     "required_tools": {"explain_image"},
-                    "image_data": tavily_image,
+                    "image_data": inline_pixel,
                 },
                 {
                     "name": "video-check",
@@ -260,6 +271,18 @@ class WarmupManager:
                     "required_tools": {"write_code"},
                 },
             ]
+
+            if "search_documents" in untested_tools:
+                tests.append(
+                    {
+                        "name": "search-documents",
+                        "prompt": (
+                            "Use the search_documents tool to retrieve any available document "
+                            "about this assistant. Summarize the first result."
+                        ),
+                        "required_tools": {"search_documents"},
+                    }
+                )
 
             all_success = True
             for test in tests:
