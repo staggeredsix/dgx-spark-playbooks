@@ -77,15 +77,22 @@ class WarmupManager:
             response = await client.post(f"{root_url}/api/show", json={"name": model_name})
             if response.status_code == 200:
                 self.logs.append(f"Model {model_name} is available before warmup tests")
-                return True
+            else:
+                pull_response = await client.post(
+                    f"{root_url}/api/pull",
+                    json={"name": model_name, "stream": False},
+                    timeout=120,
+                )
+                pull_response.raise_for_status()
+                self.logs.append(f"Pulled model {model_name} for warmup")
 
-            pull_response = await client.post(
-                f"{root_url}/api/pull",
-                json={"name": model_name, "stream": False},
-                timeout=120,
+            warm_response = await client.post(
+                f"{root_url}/api/generate",
+                json={"model": model_name, "prompt": "ping", "stream": False, "keep_alive": "5m"},
+                timeout=30,
             )
-            pull_response.raise_for_status()
-            self.logs.append(f"Pulled model {model_name} for warmup")
+            warm_response.raise_for_status()
+            self.logs.append(f"Started model {model_name} for warmup")
             return True
         except Exception as exc:  # noqa: BLE001
             warning = f"Failed to warm model {model_name}: {exc}"
