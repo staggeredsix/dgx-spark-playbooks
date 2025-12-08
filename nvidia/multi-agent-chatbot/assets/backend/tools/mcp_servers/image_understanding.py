@@ -25,11 +25,13 @@ import asyncio
 import base64
 import os
 import json
-import requests
 import sys
 from pathlib import Path
 import time
 from typing import Dict, List
+from urllib.parse import urlparse
+
+import requests
 
 from langchain_core.tools import tool, Tool
 from langchain_mcp_adapters.tools import to_fastmcp
@@ -49,7 +51,7 @@ mcp = FastMCP("image-understanding-server")
 model_name = os.getenv("VISION_MODEL", "ministral-3:14b")
 model_base_url = os.getenv(
     "VISION_LLM_API_BASE_URL",
-    os.getenv("LLM_API_BASE_URL", "http://localhost:11434/v1"),
+    os.getenv("LLM_API_BASE_URL", "http://ollama:11434/v1"),
 )
 model_client = OpenAI(
     base_url=model_base_url,
@@ -206,10 +208,46 @@ def _to_base64_payload(img: str | dict) -> List[str]:
     return []
 
 
+def _ollama_root_url() -> str:
+    """Return the Ollama root URL without the OpenAI compatibility suffix."""
+
+    root = model_base_url.rstrip("/")
+    if root.endswith("/v1"):
+        root = root[: -len("/v1")]
+    return root
+
+
+def _is_ollama_endpoint() -> bool:
+    parsed = urlparse(model_base_url)
+    host = parsed.hostname or ""
+    return "ollama" in host or parsed.port == 11434
+
+
+def _call_ollama_vision(prompt: str, images: list[str]):
+    """Invoke Ollama's native vision endpoint using the generate API."""
+
+    payload = {
+        "model": model_name,
+        "prompt": prompt,
+        "stream": False,
+    }
+    if images:
+        payload["images"] = images
+
+    response = requests.post(
+        f"{_ollama_root_url()}/api/generate",
+        json=payload,
+        timeout=300,
+    )
+    response.raise_for_status()
+    result = response.json()
+    return result.get("response") or result.get("message") or ""
+
+
 def _ensure_vision_model_ready():
     """Eagerly start the VLM service before sending a chat completion."""
 
-    root_url = model_base_url.removesuffix("/v1")
+    root_url = _ollama_root_url()
     try:
         response = requests.post(
             f"{root_url}/api/show",
@@ -253,14 +291,57 @@ def explain_image(query: str, image: str | list[str | dict] | dict):
         raise ValueError('Error: explain_image tool received an empty image payload.')
 
     staged_contents: list[dict] = []
+    base64_payloads: list[str] = []
     for img in images:
         try:
-            staged_contents.append(_prepare_image_content(img))
+            prepared = _prepare_image_content(img)
+            staged_contents.append(prepared)
+            base64_payloads.extend(_to_base64_payload(prepared))
         except Exception as exc:
             logger.warning(f"Failed to stage media '{img}': {exc}")
 
     if not staged_contents:
         raise ValueError('Error: explain_image tool did not receive any valid media to process.')
+
+    if _is_ollama_endpoint():
+        if not base64_payloads:
+            raise ValueError('Error: could not convert provided media into base64 payloads for the VLM.')
+
+        last_error = None
+        for attempt in range(3):
+            try:
+                logger.info(
+                    {
+                        "message": "Vision inference request (ollama generate)",
+                        "model": model_name,
+                        "base_url": _ollama_root_url(),
+                        "attempt": attempt + 1,
+                        "media_items": len(base64_payloads),
+                    }
+                )
+                _ensure_vision_model_ready()
+                return _call_ollama_vision(query, base64_payloads)
+            except Exception as exc:
+                last_error = str(exc)
+                logger.warning(
+                    {
+                        "message": "Vision inference error (ollama generate)",
+                        "model": model_name,
+                        "base_url": _ollama_root_url(),
+                        "attempt": attempt + 1,
+                        "error": str(exc),
+                    }
+                )
+                if attempt < 2:
+                    time.sleep(min(2 ** attempt, 4))
+
+        error_message = (
+            "Vision model is currently unreachable. "
+            "Please verify the VLM service and try again."
+        )
+        if last_error:
+            error_message += f" Last error: {last_error}"
+        return error_message
 
     last_error = None
     for attempt in range(3):
@@ -348,6 +429,34 @@ def explain_video(query: str, video_frames: str | list[str | dict] | dict):
                 }
             )
             _ensure_vision_model_ready()
+
+            if _is_ollama_endpoint():
+                prompt_parts = [
+                    (
+                        "The following ordered frames are sampled from a video. "
+                        "Each frame includes its timestamp in seconds. Use the temporal ordering when answering."
+                    ),
+                    f"User request: {query}",
+                ]
+
+                for idx, frame in enumerate(staged_frames, start=1):
+                    ts = frame.get("timestamp")
+                    label = f"Frame {idx} at {ts}s" if ts is not None else f"Frame {idx} (timestamp unavailable)"
+                    prompt_parts.append(label)
+
+                prompt = "\n".join(prompt_parts)
+                images = [frame["payload"] for frame in staged_frames]
+                result = _call_ollama_vision(prompt, images)
+                logger.info(
+                    {
+                        "message": "Vision video inference response (ollama generate)",
+                        "model": model_name,
+                        "base_url": _ollama_root_url(),
+                        "attempt": attempt + 1,
+                    }
+                )
+                return result
+
             message_content = [
                 {
                     "type": "text",
