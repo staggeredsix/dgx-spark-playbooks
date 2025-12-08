@@ -29,6 +29,7 @@ import requests
 import sys
 from pathlib import Path
 import time
+from typing import Dict, List
 
 from langchain_core.tools import tool, Tool
 from langchain_mcp_adapters.tools import to_fastmcp
@@ -53,6 +54,7 @@ model_client = OpenAI(
     base_url=model_base_url,
     api_key=os.getenv("LLM_API_KEY", "ollama"),
 )
+_media_cache: Dict[str, str] = {}
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "postgres")
 POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", 5432))
 POSTGRES_DB = os.getenv("POSTGRES_DB", "chatbot")
@@ -126,6 +128,49 @@ def _prepare_image_content(img: str):
     raise ValueError(f'Invalid image type -- could not be identified as a url or filepath: {img}')
 
 
+def _to_base64_payload(img: str) -> List[str]:
+    """Stage media into raw base64 payloads for the VLM.
+
+    Ollama's OpenAI-compatible vision endpoint accepts an ``images`` array of base64
+    strings. We normalize uploaded data URIs, downloaded URLs, and local file paths
+    into that format while caching results to avoid repeated downloads when the
+    model isn't ready yet.
+    """
+
+    cached = _media_cache.get(img)
+    if cached:
+        return [cached]
+
+    try:
+        content = _prepare_image_content(img)
+    except Exception as exc:
+        print(f"Failed to prepare media '{img}': {exc}")
+        return []
+
+    # Convert the prepared payload into raw base64 expected by the VLM
+    if isinstance(content, dict) and content.get("type") == "image_url":
+        url = content.get("image_url", {}).get("url", "")
+        if url.startswith("data:"):
+            try:
+                base64_part = url.split(",", 1)[1]
+                _media_cache[img] = base64_part
+                return [base64_part]
+            except Exception as exc:  # pragma: no cover - defensive
+                print(f"Failed to parse data URI for '{img}': {exc}")
+                return []
+
+        try:
+            response = _download_url(url)
+            encoded = base64.b64encode(response.content).decode("utf-8")
+            _media_cache[img] = encoded
+            return [encoded]
+        except Exception as exc:
+            print(f"Failed to download image url '{url}' for staging: {exc}")
+            return []
+
+    return []
+
+
 def _ensure_vision_model_ready():
     """Eagerly start the VLM service before sending a chat completion."""
 
@@ -156,31 +201,36 @@ def explain_image(query: str, image: str | list[str]):
     if not images:
         raise ValueError('Error: explain_image tool received an empty image payload.')
 
-    contents = [{"type": "text", "text": query}]
+    staged_payloads: list[str] = []
     for img in images:
-        try:
-            contents.append(_prepare_image_content(img))
-        except Exception as exc:
-            print(f"Skipping media entry '{img}': {exc}")
+        staged_payloads.extend(_to_base64_payload(img))
 
-    if len(contents) == 1:
+    if not staged_payloads:
         raise ValueError('Error: explain_image tool did not receive any valid media to process.')
-
-    message = [
-        {
-            "role": "user",
-            "content": contents
-        }
-    ]
 
     last_error = None
     for attempt in range(3):
         try:
             print(f"Sending request to vision model (attempt {attempt + 1}/3): {query}")
             _ensure_vision_model_ready()
+            message_content = [
+                {"type": "text", "text": query},
+                *[
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{payload}"},
+                    }
+                    for payload in staged_payloads
+                ],
+            ]
             response = model_client.chat.completions.create(
                 model=model_name,
-                messages=message,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": message_content,
+                    }
+                ],
                 max_tokens=512,
                 temperature=0.1,
             )
