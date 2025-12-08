@@ -1,0 +1,170 @@
+/*
+# SPDX-FileCopyrightText: Copyright (c) 1993-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+*/
+.container {
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  transition: border-color 0.2s ease;
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 0;
+  color: #111827;
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  color: #4b5563;
+  font-size: 0.9rem;
+}
+
+.runButton {
+  border: none;
+  background: #111827;
+  color: #ffffff;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  min-width: 120px;
+}
+
+.runButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.toolingBox {
+  background: #f9fafb;
+  border: 1px dashed #d1d5db;
+  border-radius: 10px;
+  padding: 12px;
+  margin: 12px 0;
+}
+
+.toolingTitle {
+  margin: 0 0 6px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.toolingText {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 0.9rem;
+  color: #111827;
+}
+
+.resultsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.resultCard {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #ffffff;
+  min-height: 110px;
+}
+
+.resultHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.resultDetail {
+  margin: 0;
+  color: #374151;
+  font-size: 0.95rem;
+}
+
+.toolsRow {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #4b5563;
+  font-size: 0.85rem;
+}
+
+.toolList {
+  display: block;
+}
+
+.successDot,
+.failureDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.successDot {
+  background: #10b981;
+}
+
+.failureDot {
+  background: #ef4444;
+}
+
+.logBox {
+  margin-top: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.logSummary {
+  padding: 10px 12px;
+  cursor: pointer;
+  font-weight: 600;
+  color: #111827;
+}
+
+.logContent {
+  max-height: 180px;
+  overflow: auto;
+  padding: 0 12px 12px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  color: #1f2937;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.logLine {
+  background: #f9fafb;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+}
+
+.passed {
+  border-color: #10b981;
+}
+
+.failed {
+  border-color: #ef4444;
+}
+
+.pending {
+  border-color: #f59e0b;
+}

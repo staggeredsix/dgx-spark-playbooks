@@ -34,6 +34,20 @@
   bottom: 0;
 }
 
+.mainColumn {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 12px 12px 0 12px;
+  gap: 12px;
+}
+
+.chatWrapper {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
 .documentUploadContainer {
   position: absolute;
   top: 50%;
