@@ -19,6 +19,7 @@ import { useState, useRef, useEffect } from 'react';
 import QuerySection from '@/components/QuerySection';
 import DocumentIngestion from '@/components/DocumentIngestion';
 import Sidebar from '@/components/Sidebar';
+import WarmupStatus from '@/components/WarmupStatus';
 import styles from '@/styles/Home.module.css';
 
 export default function Home() {
@@ -92,17 +93,22 @@ export default function Home() {
       />
       
       <div className={styles.mainContent}>
-        <QuerySection
-          query={query}
-          response={response}
-          isStreaming={isStreaming}
-          setQuery={setQuery}
-          setResponse={setResponse}
-          setIsStreaming={setIsStreaming}
-          abortControllerRef={abortControllerRef}
-          setShowIngestion={setShowIngestion}
-          currentChatId={currentChatId}
-        />
+        <div className={styles.mainColumn}>
+          <WarmupStatus />
+          <div className={styles.chatWrapper}>
+            <QuerySection
+              query={query}
+              response={response}
+              isStreaming={isStreaming}
+              setQuery={setQuery}
+              setResponse={setResponse}
+              setIsStreaming={setIsStreaming}
+              abortControllerRef={abortControllerRef}
+              setShowIngestion={setShowIngestion}
+              currentChatId={currentChatId}
+            />
+          </div>
+        </div>
       </div>
 
       {showIngestion && (

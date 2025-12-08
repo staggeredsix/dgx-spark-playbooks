@@ -45,6 +45,7 @@ from utils_media import (
     process_uploaded_media,
 )
 from vector_store import create_vector_store_with_config
+from warmup import WarmupManager
 
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "postgres")
 POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", 5432))
@@ -68,6 +69,7 @@ vector_store._initialize_store()
 
 agent: ChatAgent | None = None
 indexing_tasks: Dict[str, str] = {}
+warmup_manager = WarmupManager()
 
 
 @asynccontextmanager
@@ -86,6 +88,9 @@ async def lifespan(app: FastAPI):
             postgres_storage=postgres_storage
         )
         logger.info("ChatAgent initialized successfully.")
+        warmup_manager.set_agent(agent)
+        logger.info("Starting supervisor startup briefing and warmup registration")
+        await warmup_manager.prime_supervisor()
     except Exception as e:
         logger.error(f"Failed to initialize PostgreSQL storage: {e}")
         raise
@@ -119,6 +124,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/warmup/status")
+async def get_warmup_status():
+    """Return the current warmup status and logs."""
+
+    return warmup_manager.status_payload
+
+
+@app.post("/warmup/run")
+async def trigger_warmup():
+    """Start the warmup suite if it is not already running."""
+
+    return await warmup_manager.start_suite()
 
 
 @app.websocket("/ws/chat/{chat_id}")
