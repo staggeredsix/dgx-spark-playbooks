@@ -5,8 +5,11 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 from typing import Any, Dict, Iterable, List, Optional, Set
+
+import httpx
 
 from logger import logger
 
@@ -50,6 +53,81 @@ class WarmupManager:
 
         logger.info({"message": "Warmup tooling overview", "tools": tools})
         self.logs.append(self.tooling_overview)
+
+    def _collect_models_to_warm(self) -> Set[str]:
+        """Gather all models that should be running for the stack."""
+
+        configured_models = {
+            model.strip()
+            for model in os.getenv("MODELS", "").split(",")
+            if model.strip()
+        }
+
+        vision_model = os.getenv("VISION_MODEL", "ministral-3:14b")
+        code_model = os.getenv("CODE_MODEL", "qwen3-coder:30b")
+
+        configured_models.update({vision_model, code_model})
+        return {model for model in configured_models if model}
+
+    async def _ensure_model_ready(self, client: httpx.AsyncClient, model_name: str) -> bool:
+        """Proactively start or pull a model so tests exercise real endpoints."""
+
+        root_url = os.getenv("LLM_API_BASE_URL", "http://localhost:11434/v1").removesuffix("/v1")
+        try:
+            response = await client.post(f"{root_url}/api/show", json={"name": model_name})
+            if response.status_code == 200:
+                self.logs.append(f"Model {model_name} is available before warmup tests")
+                return True
+
+            pull_response = await client.post(
+                f"{root_url}/api/pull",
+                json={"name": model_name, "stream": False},
+                timeout=120,
+            )
+            pull_response.raise_for_status()
+            self.logs.append(f"Pulled model {model_name} for warmup")
+            return True
+        except Exception as exc:  # noqa: BLE001
+            warning = f"Failed to warm model {model_name}: {exc}"
+            logger.warning(warning)
+            self.logs.append(warning)
+            return False
+
+    async def _start_required_models(self) -> None:
+        """Ensure all configured models, including VLM and coder, are running."""
+
+        models_to_warm = list(self._collect_models_to_warm())
+        if not models_to_warm:
+            self.logs.append("No models configured for warmup")
+            return
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            results = await asyncio.gather(
+                *(self._ensure_model_ready(client, model) for model in models_to_warm),
+                return_exceptions=True,
+            )
+
+        failures = [model for model, success in zip(models_to_warm, results) if success is not True]
+        if failures:
+            self.logs.append(
+                "The following models could not be warmed and may require attention: "
+                + ", ".join(failures)
+            )
+        else:
+            self.logs.append("All configured models were warmed successfully")
+
+    @staticmethod
+    def _response_indicates_vlm_failure(body: str) -> bool:
+        lowered = body.lower()
+        failure_markers = [
+            "error executing tool",
+            "vision model is currently unreachable",
+            "could not stage any frames",
+            "did not receive any valid media",
+            "empty media reference",
+            "unprocessed media",
+        ]
+        return any(marker in lowered for marker in failure_markers)
 
     async def prime_supervisor(self) -> None:
         """Send an initial briefing to the supervisor model with available tools."""
@@ -100,6 +178,8 @@ class WarmupManager:
             return
 
         try:
+            await self._start_required_models()
+
             tavily_image = (
                 "https://upload.wikimedia.org/wikipedia/sco/thumb/2/21/"
                 "Nvidia_logo.svg/500px-Nvidia_logo.svg.png?20150924223142"
@@ -174,6 +254,13 @@ class WarmupManager:
                     required_tools=test["required_tools"],
                     image_data=test.get("image_data"),
                 )
+
+                if test["name"] in {"vision-check", "video-check"}:
+                    final_message = result.get("final_message") or ""
+                    if not final_message.strip() or self._response_indicates_vlm_failure(final_message):
+                        result["success"] = False
+                        result["detail"] += "; Vision model did not return a valid description"
+
                 self.results.append(result)
                 if not result.get("success"):
                     all_success = False
