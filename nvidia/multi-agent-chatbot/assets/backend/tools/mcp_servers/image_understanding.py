@@ -213,13 +213,22 @@ def explain_image(query: str, image: str | list[str]):
         try:
             print(f"Sending request to vision model (attempt {attempt + 1}/3): {query}")
             _ensure_vision_model_ready()
+            message_content = [
+                {"type": "text", "text": query},
+                *[
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{payload}"},
+                    }
+                    for payload in staged_payloads
+                ],
+            ]
             response = model_client.chat.completions.create(
                 model=model_name,
                 messages=[
                     {
                         "role": "user",
-                        "content": query,
-                        "images": staged_payloads,
+                        "content": message_content,
                     }
                 ],
                 max_tokens=512,
