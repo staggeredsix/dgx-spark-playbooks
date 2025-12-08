@@ -189,7 +189,9 @@ class WarmupManager:
         required = set(required_tools)
 
         try:
-            async for event in self.agent.query(query_text=prompt, chat_id=chat_id):
+            async for event in self.agent.query(
+                query_text=prompt, chat_id=chat_id, persist=False
+            ):
                 if isinstance(event, str):
                     final_message = (final_message or "") + event
                     continue

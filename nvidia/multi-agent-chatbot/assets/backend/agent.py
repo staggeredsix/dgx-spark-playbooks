@@ -477,7 +477,14 @@ class ChatAgent:
 
         return llm_output_buffer, tool_calls_buffer
 
-    async def query(self, query_text: str, chat_id: str, image_data: str | List[str] = None) -> AsyncIterator[Dict[str, Any]]:
+    async def query(
+        self,
+        query_text: str,
+        chat_id: str,
+        image_data: str | List[str] = None,
+        *,
+        persist: bool = True,
+    ) -> AsyncIterator[Dict[str, Any]]:
         """Process user query and stream response tokens.
         
         Args:
@@ -491,13 +498,18 @@ class ChatAgent:
             "message": "GRAPH: STARTING EXECUTION",
             "chat_id": chat_id,
             "query": query_text[:100] + "..." if len(query_text) > 100 else query_text,
-            "graph_flow": "START → generate → should_continue → action → generate → END"
+            "graph_flow": "START → generate → should_continue → action → generate → END",
+            "persist": persist,
         })
 
         config = {"configurable": {"thread_id": chat_id}}
 
         try:
-            existing_messages = await self.conversation_store.get_messages(chat_id, limit=1)
+            existing_messages = (
+                await self.conversation_store.get_messages(chat_id, limit=1)
+                if persist
+                else []
+            )
             
             base_system_prompt = self.system_prompt
             normalized_media = merge_media_payloads(image_data)
@@ -547,7 +559,9 @@ class ChatAgent:
             self.last_state = None
             token_q: asyncio.Queue[Any] = asyncio.Queue()
             self.stream_callback = lambda event: self._queue_writer(event, token_q)
-            runner = asyncio.create_task(self._run_graph(initial_state, config, chat_id, token_q))
+            runner = asyncio.create_task(
+                self._run_graph(initial_state, config, chat_id, token_q, persist=persist)
+            )
 
             try:
                 while True:
@@ -581,7 +595,15 @@ class ChatAgent:
         """
         await token_q.put(event)
 
-    async def _run_graph(self, initial_state: Dict[str, Any], config: Dict[str, Any], chat_id: str, token_q: asyncio.Queue) -> None:
+    async def _run_graph(
+        self,
+        initial_state: Dict[str, Any],
+        config: Dict[str, Any],
+        chat_id: str,
+        token_q: asyncio.Queue,
+        *,
+        persist: bool = True,
+    ) -> None:
         """Run the graph execution in background task.
         
         Args:
@@ -602,11 +624,20 @@ class ChatAgent:
             try:
                 if self.last_state and self.last_state.get("messages"):
                     final_msg = self.last_state["messages"][-1]
-                    try:
-                        logger.debug(f'Saving messages to conversation store for chat: {chat_id}')
-                        await self.conversation_store.save_messages(chat_id, self.last_state["messages"])
-                    except Exception as save_err:
-                        logger.warning({"message": "Failed to persist conversation", "chat_id": chat_id, "error": str(save_err)})
+                    if persist:
+                        try:
+                            logger.debug(f'Saving messages to conversation store for chat: {chat_id}')
+                            await self.conversation_store.save_messages(
+                                chat_id, self.last_state["messages"]
+                            )
+                        except Exception as save_err:
+                            logger.warning(
+                                {
+                                    "message": "Failed to persist conversation",
+                                    "chat_id": chat_id,
+                                    "error": str(save_err),
+                                }
+                            )
 
                     content = getattr(final_msg, "content", None)
                     if content:
