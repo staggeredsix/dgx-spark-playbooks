@@ -253,6 +253,8 @@ class ChatAgent:
                     content = tool_result
                 else:
                     content = json.dumps(tool_result)
+                if content:
+                    await self.stream_callback({"type": "tool_token", "data": content})
             except Exception as e:
                 logger.error(f'Error executing tool {tool_call["name"]}: {str(e)}', exc_info=True)
                 content = f"Error executing tool '{tool_call['name']}': {str(e)}"
