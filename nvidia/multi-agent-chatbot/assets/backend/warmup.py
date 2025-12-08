@@ -54,25 +54,33 @@ class WarmupManager:
         logger.info({"message": "Warmup tooling overview", "tools": tools})
         self.logs.append(self.tooling_overview)
 
-    def _collect_models_to_warm(self) -> Set[str]:
-        """Gather all models that should be running for the stack."""
+    def _collect_models_to_warm(self) -> Set[tuple[str, str]]:
+        """Gather all models that should be running for the stack with their endpoints."""
 
-        configured_models = {
-            model.strip()
+        base_url = os.getenv("LLM_API_BASE_URL", "http://localhost:11434/v1").removesuffix("/v1")
+        configured_models: Set[tuple[str, str]] = {
+            (model.strip(), base_url)
             for model in os.getenv("MODELS", "").split(",")
             if model.strip()
         }
 
         vision_model = os.getenv("VISION_MODEL", "ministral-3:14b")
+        vision_base = os.getenv(
+            "VISION_LLM_API_BASE_URL",
+            os.getenv("LLM_API_BASE_URL", "http://localhost:11434/v1"),
+        ).removesuffix("/v1")
         code_model = os.getenv("CODE_MODEL", "qwen3-coder:30b")
 
-        configured_models.update({vision_model, code_model})
-        return {model for model in configured_models if model}
+        configured_models.update({
+            (vision_model, vision_base),
+            (code_model, base_url),
+        })
+        return {(model, url) for model, url in configured_models if model}
 
-    async def _ensure_model_ready(self, client: httpx.AsyncClient, model_name: str) -> bool:
+    async def _ensure_model_ready(self, client: httpx.AsyncClient, model_name: str, base_url: str) -> bool:
         """Proactively start or pull a model so tests exercise real endpoints."""
 
-        root_url = os.getenv("LLM_API_BASE_URL", "http://localhost:11434/v1").removesuffix("/v1")
+        root_url = base_url
         try:
             response = await client.post(f"{root_url}/api/show", json={"name": model_name})
             if response.status_code == 200:
@@ -110,11 +118,11 @@ class WarmupManager:
 
         async with httpx.AsyncClient(timeout=30) as client:
             results = await asyncio.gather(
-                *(self._ensure_model_ready(client, model) for model in models_to_warm),
+                *(self._ensure_model_ready(client, model, base_url) for model, base_url in models_to_warm),
                 return_exceptions=True,
             )
 
-        failures = [model for model, success in zip(models_to_warm, results) if success is not True]
+        failures = [model for (model, _), success in zip(models_to_warm, results) if success is not True]
         if failures:
             self.logs.append(
                 "The following models could not be warmed and may require attention: "
