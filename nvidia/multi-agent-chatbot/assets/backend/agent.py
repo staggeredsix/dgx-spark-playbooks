@@ -317,6 +317,23 @@ class ChatAgent:
                 "tools": self.openai_tools,
                 "tool_choice": "auto"
             }
+
+            if state.get("image_data") and not state.get("process_image_used"):
+                has_video_frames = any(
+                    isinstance(item, dict) and "timestamp" in item
+                    for item in state.get("image_data", [])
+                )
+                forced_tool = "explain_video" if has_video_frames else "explain_image"
+
+                supported = any(
+                    tool.get("function", {}).get("name") == forced_tool
+                    for tool in self.openai_tools
+                )
+                if supported:
+                    tool_params["tool_choice"] = {
+                        "type": "function",
+                        "function": {"name": forced_tool}
+                    }
         
         stream = await self.model_client.chat.completions.create(
             model=self.current_model,
