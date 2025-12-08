@@ -40,6 +40,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 from postgres_storage import PostgreSQLConversationStorage
 from utils_media import _download_url
+from logger import logger
 
 
 mcp = FastMCP("image-understanding-server")
@@ -125,8 +126,8 @@ def _prepare_image_content(img: str):
                 },
             }
         except Exception as exc:
-            print(f"Failed to download remote image {img}: {exc}. Passing URL directly.")
-        return {"type": "image_url", "image_url": {"url": img}}
+            logger.warning(f"Failed to download remote image {img}: {exc}. Passing URL directly.")
+            return {"type": "image_url", "image_url": {"url": img}}
 
     if img.startswith("data:image/"):
         return {"type": "image_url", "image_url": {"url": img}}
@@ -169,7 +170,7 @@ def _to_base64_payload(img: str | dict) -> List[str]:
     try:
         content = _prepare_image_content(img)
     except Exception as exc:
-        print(f"Failed to prepare media '{img}': {exc}")
+        logger.warning(f"Failed to prepare media '{img}': {exc}")
         return []
 
     # Convert the prepared payload into raw base64 expected by the VLM
@@ -181,7 +182,7 @@ def _to_base64_payload(img: str | dict) -> List[str]:
                 _media_cache[cache_key] = base64_part
                 return [base64_part]
             except Exception as exc:  # pragma: no cover - defensive
-                print(f"Failed to parse data URI for '{img}': {exc}")
+                logger.warning(f"Failed to parse data URI for '{img}': {exc}")
                 return []
 
         try:
@@ -190,7 +191,7 @@ def _to_base64_payload(img: str | dict) -> List[str]:
             _media_cache[cache_key] = encoded
             return [encoded]
         except Exception as exc:
-            print(f"Failed to download image url '{url}' for staging: {exc}")
+            logger.warning(f"Failed to download image url '{url}' for staging: {exc}")
             return []
 
     return []
@@ -216,7 +217,7 @@ def _ensure_vision_model_ready():
         )
         pull_response.raise_for_status()
     except Exception as exc:
-        print(f"Warning: unable to proactively start VLM {model_name}: {exc}")
+        logger.warning(f"Warning: unable to proactively start VLM {model_name}: {exc}")
 
 
 def _stage_video_frames(frames: list[dict]) -> list[dict]:
@@ -252,7 +253,15 @@ def explain_image(query: str, image: str | list[str]):
     last_error = None
     for attempt in range(3):
         try:
-            print(f"Sending request to vision model (attempt {attempt + 1}/3): {query}")
+            logger.info(
+                {
+                    "message": "Vision inference request",
+                    "model": model_name,
+                    "base_url": model_base_url,
+                    "attempt": attempt + 1,
+                    "media_items": len(staged_payloads),
+                }
+            )
             _ensure_vision_model_ready()
             message_content = [
                 {"type": "text", "text": query},
@@ -275,11 +284,26 @@ def explain_image(query: str, image: str | list[str]):
                 max_tokens=512,
                 temperature=0.1,
             )
-            print("Received response from vision model")
+            logger.info(
+                {
+                    "message": "Vision inference response",
+                    "model": model_name,
+                    "base_url": model_base_url,
+                    "attempt": attempt + 1,
+                }
+            )
             return response.choices[0].message.content
         except Exception as e:
             last_error = str(e)
-            print(f"Error calling vision model on attempt {attempt + 1}: {e}")
+            logger.warning(
+                {
+                    "message": "Vision inference error",
+                    "model": model_name,
+                    "base_url": model_base_url,
+                    "attempt": attempt + 1,
+                    "error": str(e),
+                }
+            )
             if attempt < 2:
                 backoff = min(2 ** attempt, 4)
                 time.sleep(backoff)
@@ -308,7 +332,15 @@ def explain_video(query: str, video_frames: str | list[str | dict] | dict):
     last_error = None
     for attempt in range(3):
         try:
-            print(f"Sending request to vision model for video (attempt {attempt + 1}/3): {query}")
+            logger.info(
+                {
+                    "message": "Vision video inference request",
+                    "model": model_name,
+                    "base_url": model_base_url,
+                    "attempt": attempt + 1,
+                    "frame_count": len(staged_frames),
+                }
+            )
             _ensure_vision_model_ready()
             message_content = [
                 {
@@ -341,11 +373,26 @@ def explain_video(query: str, video_frames: str | list[str | dict] | dict):
                 max_tokens=512,
                 temperature=0.1,
             )
-            print("Received response from vision model for video")
+            logger.info(
+                {
+                    "message": "Vision video inference response",
+                    "model": model_name,
+                    "base_url": model_base_url,
+                    "attempt": attempt + 1,
+                }
+            )
             return response.choices[0].message.content
         except Exception as e:
             last_error = str(e)
-            print(f"Error calling vision model on attempt {attempt + 1}: {e}")
+            logger.warning(
+                {
+                    "message": "Vision video inference error",
+                    "model": model_name,
+                    "base_url": model_base_url,
+                    "attempt": attempt + 1,
+                    "error": str(e),
+                }
+            )
             if attempt < 2:
                 backoff = min(2 ** attempt, 4)
                 time.sleep(backoff)
@@ -359,5 +406,5 @@ def explain_video(query: str, video_frames: str | list[str | dict] | dict):
     return error_message
 
 if __name__ == "__main__":
-    print(f'running {mcp.name} MCP server')
+    logger.info({"message": f"running {mcp.name} MCP server"})
     mcp.run(transport="stdio")

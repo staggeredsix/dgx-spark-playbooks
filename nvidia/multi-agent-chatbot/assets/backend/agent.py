@@ -334,7 +334,18 @@ class ChatAgent:
                         "type": "function",
                         "function": {"name": forced_tool}
                     }
-        
+
+        logger.info({
+            "message": "LLM inference request",
+            "chat_id": state.get("chat_id"),
+            "model": self.current_model,
+            "api_base": self.api_base,
+            "has_media": bool(state.get("image_data")),
+            "media_items": len(state.get("image_data", []) or []),
+            "tool_choice": tool_params.get("tool_choice", "auto"),
+            "tool_count": len(tool_params.get("tools", []) or []),
+        })
+
         stream = await self.model_client.chat.completions.create(
             model=self.current_model,
             messages=messages,
@@ -347,6 +358,14 @@ class ChatAgent:
         llm_output_buffer, tool_calls_buffer = await self._stream_response(stream, self.stream_callback)
         tool_calls = self._format_tool_calls(tool_calls_buffer)
         raw_output = "".join(llm_output_buffer)
+
+        logger.info({
+            "message": "LLM inference response",
+            "chat_id": state.get("chat_id"),
+            "model": self.current_model,
+            "tool_calls_count": len(tool_calls),
+            "raw_output_preview": raw_output[:120] + "..." if len(raw_output) > 120 else raw_output,
+        })
         
         logger.debug({
             "message": "Tool call generation results",
