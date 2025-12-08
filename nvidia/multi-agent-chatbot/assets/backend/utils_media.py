@@ -30,21 +30,27 @@ def _to_data_uri(raw_bytes: bytes, mime_type: str) -> str:
     return f"data:{mime_type};base64,{encoded}"
 
 
-def _extract_video_frames(video_path: Path, max_frames: int = 4) -> List[str]:
-    """Extract up to ``max_frames`` frames from a video file as JPEG data URIs."""
+def _extract_video_frames(video_path: Path, max_frames: int = 120) -> List[dict]:
+    """Extract frames from a video file every 4 frames with timestamps.
+
+    The function samples every 4th frame to preserve ordering while keeping payloads
+    manageable. Each returned item includes the frame's timestamp (in seconds) and
+    a JPEG data URI for downstream VLM consumption.
+    """
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise ValueError("Unable to open uploaded video for processing")
 
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
-    frames: List[str] = []
+    frames: List[dict] = []
+
+    fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+    stride = 4
 
     if frame_count == 0:
         cap.release()
         raise ValueError("Uploaded video contains no readable frames")
 
-    # Evenly sample frames across the video timeline
-    stride = max(frame_count // max_frames, 1)
     for idx in range(0, frame_count, stride):
         if len(frames) >= max_frames:
             break
@@ -55,7 +61,11 @@ def _extract_video_frames(video_path: Path, max_frames: int = 4) -> List[str]:
         success, buffer = cv2.imencode(".jpg", frame)
         if not success:
             continue
-        frames.append(_to_data_uri(buffer.tobytes(), "image/jpeg"))
+        timestamp = round(idx / fps, 2)
+        frames.append({
+            "timestamp": timestamp,
+            "data": _to_data_uri(buffer.tobytes(), "image/jpeg"),
+        })
 
     cap.release()
 
@@ -81,24 +91,27 @@ def _download_url(url: str) -> requests.Response:
     return response
 
 
-def _normalize_payloads(payload: Sequence[str] | str | None) -> List[str]:
+def _normalize_payloads(payload: Sequence[str | dict] | str | dict | None) -> List[str | dict]:
     if payload is None:
         return []
+
+    if isinstance(payload, dict):
+        return [payload]
 
     if isinstance(payload, str):
         try:
             parsed = json.loads(payload)
             if isinstance(parsed, dict) and isinstance(parsed.get("data"), list):
-                return [p for p in parsed["data"] if isinstance(p, str)]
+                return [p for p in parsed["data"] if isinstance(p, (str, dict))]
         except json.JSONDecodeError:
             pass
         return [payload]
 
-    return [p for p in payload if isinstance(p, str)]
+    return [p for p in payload if isinstance(p, (str, dict))]
 
 
-def process_uploaded_media(file: UploadFile) -> List[str]:
-    """Process an uploaded image or video into VLM-ready data URIs."""
+def process_uploaded_media(file: UploadFile) -> List[str | dict]:
+    """Process an uploaded image or video into VLM-ready payloads."""
     content = file.file.read()
     if not content:
         raise ValueError("Uploaded file is empty")
@@ -154,8 +167,8 @@ def collect_remote_media_from_text(text: str) -> List[str]:
     return media_urls
 
 
-def merge_media_payloads(*payloads: Iterable[str] | Sequence[str] | str | None) -> List[str]:
-    merged: List[str] = []
+def merge_media_payloads(*payloads: Iterable[str | dict] | Sequence[str | dict] | str | dict | None) -> List[str | dict]:
+    merged: List[str | dict] = []
     for payload in payloads:
         merged.extend(_normalize_payloads(payload))
-    return [p for p in merged if isinstance(p, str) and p.strip()]
+    return [p for p in merged if (isinstance(p, str) and p.strip()) or isinstance(p, dict)]
