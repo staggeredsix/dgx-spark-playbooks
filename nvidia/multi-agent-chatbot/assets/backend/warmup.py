@@ -77,7 +77,9 @@ class WarmupManager:
         })
         return {(model, url) for model, url in configured_models if model}
 
-    async def _ensure_model_ready(self, client: httpx.AsyncClient, model_name: str, base_url: str) -> bool:
+    async def _ensure_model_ready(
+        self, client: httpx.AsyncClient, model_name: str, base_url: str
+    ) -> bool:
         """Proactively start or pull a model so tests exercise real endpoints."""
 
         root_url = base_url
@@ -96,8 +98,15 @@ class WarmupManager:
 
             warm_response = await client.post(
                 f"{root_url}/api/generate",
-                json={"model": model_name, "prompt": "ping", "stream": False, "keep_alive": "5m"},
-                timeout=30,
+                json={
+                    "model": model_name,
+                    "prompt": "ping",
+                    "stream": False,
+                    # Keep the model running long enough for the warmup suite to finish
+                    # and for the user to interact with the UI without reloading it.
+                    "keep_alive": "30m",
+                },
+                timeout=240,
             )
             warm_response.raise_for_status()
             self.logs.append(f"Started model {model_name} for warmup")
