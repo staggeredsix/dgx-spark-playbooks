@@ -137,28 +137,46 @@ def process_uploaded_media(file: UploadFile) -> List[str | dict]:
     raise ValueError("Unsupported media type. Please upload an image or video file.")
 
 
+def _validate_media_response(response: requests.Response) -> bool:
+    """Return True if the response represents an image or video within limits."""
+    content_length = response.headers.get("Content-Length")
+    if content_length and int(content_length) > MAX_DOWNLOAD_SIZE:
+        return False
+
+    media_type = (response.headers.get("Content-Type") or "").split(";")[0]
+    return media_type.startswith("image/") or media_type.startswith("video/")
+
+
 def collect_remote_media_from_text(text: str) -> List[str]:
     """Collect HTTP/HTTPS media URLs referenced in the text.
 
-    Instead of inlining remote assets as base64 data URIs (which inflates payloads
-    and can overwhelm the WebSocket pipeline), we validate URLs are reachable and
-    under the size cap and then return the URLs directly. The vision model will
-    fetch the media remotely, keeping the client/server messages compact.
+    We try a lightweight HEAD request first. Some CDNs block HEAD or omit
+    Content-Type headers, which previously caused us to discard valid image URLs
+    (e.g., the default welcome card link). To keep tool calls dynamic for each
+    prompt, we now fall back to a small GET request to confirm the media type
+    before passing the URL through to the vision toolchain.
     """
     media_urls: List[str] = []
 
     for match in MEDIA_URL_PATTERN.findall(text):
         try:
-            # Perform a lightweight HEAD request to validate reachability and size
             response = requests.head(match, allow_redirects=True, timeout=10)
             response.raise_for_status()
 
-            content_length = response.headers.get("Content-Length")
-            if content_length and int(content_length) > MAX_DOWNLOAD_SIZE:
+            if _validate_media_response(response):
+                media_urls.append(match)
                 continue
+        except Exception:
+            # HEAD may fail or be blocked; fall back to GET below
+            response = None
 
-            media_type = (response.headers.get("Content-Type") or "").split(";")[0]
-            if media_type.startswith("image/") or media_type.startswith("video/"):
+        try:
+            response = requests.get(match, allow_redirects=True, timeout=15, stream=True)
+            response.raise_for_status()
+
+            # Only read minimal content to avoid large downloads; requests already
+            # buffered the headers so we can validate without consuming the body
+            if _validate_media_response(response):
                 media_urls.append(match)
         except Exception:
             # Skip URLs we cannot reach or validate; don't block the chat flow
