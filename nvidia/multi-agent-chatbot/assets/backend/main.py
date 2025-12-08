@@ -196,7 +196,10 @@ async def _store_media(upload: UploadFile) -> str:
         raise HTTPException(status_code=500, detail="Failed to process uploaded media") from exc
 
     media_id = str(uuid.uuid4())
-    serialized = json.dumps({"data": payloads}) if len(payloads) > 1 else payloads[0]
+    if len(payloads) > 1 or not isinstance(payloads[0], str):
+        serialized = json.dumps({"data": payloads})
+    else:
+        serialized = payloads[0]
     await postgres_storage.store_image(media_id, serialized)
     return media_id
 

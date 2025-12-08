@@ -236,11 +236,12 @@ class ChatAgent:
             await self.stream_callback({'type': 'tool_start', 'data': tool_call["name"]})
             
             try:
-                if tool_call["name"] == "explain_image":
+                if tool_call["name"] in {"explain_image", "explain_video"}:
                     tool_args = tool_call["args"].copy()
-                    merged_media = merge_media_payloads(tool_args.get("image"), state.get("image_data"))
+                    media_key = "image" if tool_call["name"] == "explain_image" else "video_frames"
+                    merged_media = merge_media_payloads(tool_args.get(media_key), state.get("image_data"))
                     if merged_media:
-                        tool_args["image"] = merged_media
+                        tool_args[media_key] = merged_media
                     logger.info(f'Executing tool {tool_call["name"]} with args: {tool_args}')
                     tool_result = await self.tools_by_name[tool_call["name"]].ainvoke(tool_args)
                     state["process_image_used"] = True
@@ -485,8 +486,10 @@ class ChatAgent:
             normalized_media = merge_media_payloads(image_data)
             if normalized_media:
                 image_context = (
-                    "\n\nIMAGE CONTEXT: The user included remote or uploaded media with their message. "
-                    "You MUST use the explain_image tool to analyze the provided media before responding."
+                    "\n\nMEDIA CONTEXT: The user included remote or uploaded media with their message. "
+                    "You MUST call the explain_image tool for still images or URLs that end in an image file type. "
+                    "If the media are sampled frames from a video (with timestamps), you MUST call the explain_video tool and "
+                    "provide all frames in chronological order."
                 )
                 system_prompt_with_image = base_system_prompt + image_context
                 messages_to_process = [SystemMessage(content=system_prompt_with_image)]

@@ -69,16 +69,33 @@ postgres_storage = PostgreSQLConversationStorage(
     password=POSTGRES_PASSWORD
 )
 
-def _normalize_images(image: str | list[str]):
+def _normalize_images(image: str | list[str | dict] | dict):
+    if isinstance(image, dict):
+        return [image]
+
     if isinstance(image, str):
         try:
             parsed = json.loads(image)
             if isinstance(parsed, dict) and isinstance(parsed.get("data"), list):
-                return [img for img in parsed["data"] if isinstance(img, str)]
+                return [img for img in parsed["data"] if isinstance(img, (str, dict))]
         except json.JSONDecodeError:
             pass
         return [image]
-    return [img for img in image if isinstance(img, str)]
+    return [img for img in image if isinstance(img, (str, dict))]
+
+
+def _normalize_video_frames(video_frames: str | list[str | dict] | dict):
+    frames = _normalize_images(video_frames)
+    normalized = []
+    for frame in frames:
+        if isinstance(frame, dict):
+            ts = frame.get("timestamp")
+            data = frame.get("data") or frame.get("image")
+            if data:
+                normalized.append({"timestamp": ts, "data": data})
+        elif isinstance(frame, str):
+            normalized.append({"timestamp": None, "data": frame})
+    return normalized
 
 
 def _prepare_image_content(img: str):
@@ -128,7 +145,7 @@ def _prepare_image_content(img: str):
     raise ValueError(f'Invalid image type -- could not be identified as a url or filepath: {img}')
 
 
-def _to_base64_payload(img: str) -> List[str]:
+def _to_base64_payload(img: str | dict) -> List[str]:
     """Stage media into raw base64 payloads for the VLM.
 
     Ollama's OpenAI-compatible vision endpoint accepts an ``images`` array of base64
@@ -137,9 +154,17 @@ def _to_base64_payload(img: str) -> List[str]:
     model isn't ready yet.
     """
 
-    cached = _media_cache.get(img)
+    cache_key = json.dumps(img, sort_keys=True) if isinstance(img, dict) else img
+    cached = _media_cache.get(cache_key)
     if cached:
         return [cached]
+
+    if isinstance(img, dict):
+        maybe_data = img.get("data") or img.get("image")
+        if isinstance(maybe_data, str):
+            img = maybe_data
+        else:
+            return []
 
     try:
         content = _prepare_image_content(img)
@@ -153,7 +178,7 @@ def _to_base64_payload(img: str) -> List[str]:
         if url.startswith("data:"):
             try:
                 base64_part = url.split(",", 1)[1]
-                _media_cache[img] = base64_part
+                _media_cache[cache_key] = base64_part
                 return [base64_part]
             except Exception as exc:  # pragma: no cover - defensive
                 print(f"Failed to parse data URI for '{img}': {exc}")
@@ -162,7 +187,7 @@ def _to_base64_payload(img: str) -> List[str]:
         try:
             response = _download_url(url)
             encoded = base64.b64encode(response.content).decode("utf-8")
-            _media_cache[img] = encoded
+            _media_cache[cache_key] = encoded
             return [encoded]
         except Exception as exc:
             print(f"Failed to download image url '{url}' for staging: {exc}")
@@ -192,6 +217,22 @@ def _ensure_vision_model_ready():
         pull_response.raise_for_status()
     except Exception as exc:
         print(f"Warning: unable to proactively start VLM {model_name}: {exc}")
+
+
+def _stage_video_frames(frames: list[dict]) -> list[dict]:
+    staged_frames: list[dict] = []
+    for frame in frames:
+        payloads = _to_base64_payload(frame)
+        if not payloads:
+            continue
+        timestamp = frame.get("timestamp")
+        for payload in payloads:
+            staged_frames.append({
+                "timestamp": timestamp,
+                "payload": payload,
+            })
+    staged_frames.sort(key=lambda f: (float('inf') if f.get("timestamp") is None else f.get("timestamp")))
+    return staged_frames
 
 
 @mcp.tool()
@@ -235,6 +276,72 @@ def explain_image(query: str, image: str | list[str]):
                 temperature=0.1,
             )
             print("Received response from vision model")
+            return response.choices[0].message.content
+        except Exception as e:
+            last_error = str(e)
+            print(f"Error calling vision model on attempt {attempt + 1}: {e}")
+            if attempt < 2:
+                backoff = min(2 ** attempt, 4)
+                time.sleep(backoff)
+
+    error_message = (
+        "Vision model is currently unreachable. "
+        "Please verify the VLM service and try again."
+    )
+    if last_error:
+        error_message += f" Last error: {last_error}"
+    return error_message
+
+
+@mcp.tool()
+def explain_video(query: str, video_frames: str | list[str | dict] | dict):
+    """Analyze a sequence of video frames with timestamps to answer the query."""
+
+    frames = _normalize_video_frames(video_frames)
+    if not frames:
+        raise ValueError('Error: explain_video tool received an empty frame payload.')
+
+    staged_frames = _stage_video_frames(frames)
+    if not staged_frames:
+        raise ValueError('Error: explain_video tool could not stage any frames for processing.')
+
+    last_error = None
+    for attempt in range(3):
+        try:
+            print(f"Sending request to vision model for video (attempt {attempt + 1}/3): {query}")
+            _ensure_vision_model_ready()
+            message_content = [
+                {
+                    "type": "text",
+                    "text": (
+                        "The following ordered frames are sampled from a video. "
+                        "Each frame includes its timestamp in seconds. Use the temporal ordering when answering."
+                    ),
+                },
+                {"type": "text", "text": f"User request: {query}"},
+            ]
+
+            for frame in staged_frames:
+                ts = frame.get("timestamp")
+                timestamp_text = f"Frame at {ts}s" if ts is not None else "Frame (timestamp unavailable)"
+                message_content.append({"type": "text", "text": timestamp_text})
+                message_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{frame['payload']}"},
+                })
+
+            response = model_client.chat.completions.create(
+                model=model_name,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": message_content,
+                    }
+                ],
+                max_tokens=512,
+                temperature=0.1,
+            )
+            print("Received response from vision model for video")
             return response.choices[0].message.content
         except Exception as e:
             last_error = str(e)
