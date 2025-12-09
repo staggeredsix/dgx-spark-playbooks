@@ -164,6 +164,7 @@ interface QuerySectionProps {
   abortControllerRef: React.RefObject<AbortController | null>;
   setShowIngestion: (value: boolean) => void;
   currentChatId: string | null;
+  onConnectionStatusChange?: (connected: boolean) => void;
 }
 
 interface Message {
@@ -183,6 +184,7 @@ export default function QuerySection({
   abortControllerRef,
   setShowIngestion,
   currentChatId,
+  onConnectionStatusChange,
 }: QuerySectionProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -277,6 +279,8 @@ export default function QuerySection({
         const ws = new WebSocket(`${wsProtocol}://${host}:${port}/ws/chat/${currentChatId}`);
         wsRef.current = ws;
 
+        onConnectionStatusChange?.(false);
+
         ws.onmessage = (event) => {
           const msg = JSON.parse(event.data);
           const type = msg.type
@@ -339,6 +343,10 @@ export default function QuerySection({
               // ignore unknown events
             }
           }
+        };
+
+        ws.onopen = () => {
+          onConnectionStatusChange?.(true);
         };
 
         ws.onclose = () => {

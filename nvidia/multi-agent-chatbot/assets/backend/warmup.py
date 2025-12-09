@@ -208,8 +208,10 @@ class WarmupManager:
                 "https://upload.wikimedia.org/wikipedia/sco/thumb/2/21/"
                 "Nvidia_logo.svg/500px-Nvidia_logo.svg.png?20150924223142"
             )
-            inline_pixel = (
-                "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+XK6cAAAAASUVORK5CYII="
+            provided_media = (
+                "https://www.nvidia.com/content/nvidiaGDC/us/en_US/about-nvidia/legal-info/"
+                "logo-brand-usage/_jcr_content/root/responsivegrid/nv_container_392921705/nv_container/"
+                "nv_image.coreimg.100.630.png/1703060329053/nvidia-logo-vert.png"
             )
             tool_names: Set[str] = set(self.agent.tools_by_name or {})
             tools_with_dedicated_tests = {
@@ -222,8 +224,8 @@ class WarmupManager:
             }
             untested_tools = tool_names - tools_with_dedicated_tests
             video_frames = [
-                {"timestamp": 0, "data": inline_pixel},
-                {"timestamp": 1.5, "data": inline_pixel},
+                {"timestamp": 0, "data": provided_media},
+                {"timestamp": 1.5, "data": provided_media},
             ]
 
             tests: List[Dict[str, Any]] = [
@@ -260,7 +262,7 @@ class WarmupManager:
                         "Provide a concise description after the tool call."
                     ),
                     "required_tools": {"explain_image"},
-                    "image_data": inline_pixel,
+                    "image_data": provided_media,
                 },
                 {
                     "name": "video-check",

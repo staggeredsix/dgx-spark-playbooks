@@ -18,7 +18,7 @@
 
 import json
 import time
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import asyncio
@@ -75,7 +75,7 @@ class PostgreSQLConversationStorage:
         
         self._message_cache: Dict[str, CacheEntry] = {}
         self._metadata_cache: Dict[str, CacheEntry] = {}
-        self._image_cache: Dict[str, CacheEntry] = {}
+        self._image_cache: Dict[Tuple[str, str], CacheEntry] = {}
         self._chat_list_cache: Optional[CacheEntry] = None
         
         self._pending_saves: Dict[str, List[BaseMessage]] = {}
@@ -180,14 +180,38 @@ class PostgreSQLConversationStorage:
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS images (
                     image_id VARCHAR(255) PRIMARY KEY,
+                    chat_id VARCHAR(255),
                     image_data TEXT NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     expires_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP + INTERVAL '1 hour')
                 )
             """)
+
+            await conn.execute("""
+                ALTER TABLE images
+                ADD COLUMN IF NOT EXISTS chat_id VARCHAR(255)
+            """)
+
+            await conn.execute(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.constraint_column_usage
+                        WHERE table_name = 'images' AND constraint_name = 'images_chat_id_fkey'
+                    ) THEN
+                        ALTER TABLE images
+                        ADD CONSTRAINT images_chat_id_fkey
+                        FOREIGN KEY (chat_id) REFERENCES conversations(chat_id) ON DELETE CASCADE;
+                    END IF;
+                END;
+                $$
+                """
+            )
             
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_images_expires_at ON images(expires_at)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_images_chat_id ON images(chat_id)")
             
             await conn.execute("""
                 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -422,43 +446,44 @@ class PostgreSQLConversationStorage:
             
             return chat_ids
 
-    async def store_image(self, image_id: str, image_base64: str) -> None:
-        """Store base64 image data with TTL."""
+    async def store_image(self, image_id: str, image_base64: str, chat_id: str) -> None:
+        """Store base64 image data with TTL and chat scoping."""
         async with self.pool.acquire() as conn:
             await conn.execute("""
-                INSERT INTO images (image_id, image_data)
-                VALUES ($1, $2)
+                INSERT INTO images (image_id, chat_id, image_data)
+                VALUES ($1, $2, $3)
                 ON CONFLICT (image_id)
-                DO UPDATE SET 
+                DO UPDATE SET
+                    chat_id = EXCLUDED.chat_id,
                     image_data = EXCLUDED.image_data,
                     created_at = CURRENT_TIMESTAMP,
                     expires_at = CURRENT_TIMESTAMP + INTERVAL '1 hour'
-            """, image_id, image_base64)
+            """, image_id, chat_id, image_base64)
             self._db_operations += 1
-        
-        self._image_cache[image_id] = CacheEntry(
+
+        self._image_cache[(chat_id, image_id)] = CacheEntry(
             data=image_base64,
             timestamp=time.time(),
             ttl=3600
         )
 
-    async def get_image(self, image_id: str) -> Optional[str]:
-        """Retrieve base64 image data with caching."""
-        cache_entry = self._image_cache.get(image_id)
+    async def get_image(self, image_id: str, chat_id: str) -> Optional[str]:
+        """Retrieve base64 image data with caching scoped to chat."""
+        cache_entry = self._image_cache.get((chat_id, image_id))
         if cache_entry and not cache_entry.is_expired():
             self._cache_hits += 1
             return cache_entry.data
-        
+
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow("""
-                SELECT image_data FROM images 
-                WHERE image_id = $1 AND expires_at > CURRENT_TIMESTAMP
-            """, image_id)
+                SELECT image_data FROM images
+                WHERE image_id = $1 AND chat_id = $2 AND expires_at > CURRENT_TIMESTAMP
+            """, image_id, chat_id)
             self._db_operations += 1
-            
+
             if row:
                 image_data = row['image_data']
-                self._image_cache[image_id] = CacheEntry(
+                self._image_cache[(chat_id, image_id)] = CacheEntry(
                     data=image_data,
                     timestamp=time.time(),
                     ttl=3600

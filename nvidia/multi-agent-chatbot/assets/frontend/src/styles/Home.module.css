@@ -147,6 +147,44 @@
   width: 100%;
 }
 
+.startupOverlay {
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(0, 0, 0, 0.75), rgba(31, 41, 55, 0.9));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 30;
+  color: #e5e7eb;
+  backdrop-filter: blur(2px);
+}
+
+.startupCard {
+  background: rgba(17, 24, 39, 0.8);
+  padding: 32px 40px;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.startupTitle {
+  font-size: 1.2rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.startupEllipsis {
+  font-size: 1.2rem;
+  min-width: 52px;
+  display: inline-flex;
+  justify-content: flex-start;
+  color: #86efac;
+  font-variant-numeric: tabular-nums;
+}
+
 @media (max-width: 768px) {
   .container {
     flex-direction: column;

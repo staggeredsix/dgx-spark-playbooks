@@ -33,7 +33,23 @@ export default function Home() {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [activePane, setActivePane] = useState<'chat' | 'testing'>('chat');
+  const [hasConnected, setHasConnected] = useState(false);
+  const [ellipsis, setEllipsis] = useState('.');
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (hasConnected) return;
+
+    const sequence = ['.', '..', '...', '....'];
+    let index = 0;
+
+    const interval = setInterval(() => {
+      index = (index + 1) % sequence.length;
+      setEllipsis(sequence[index]);
+    }, 450);
+
+    return () => clearInterval(interval);
+  }, [hasConnected]);
 
   // Load initial chat ID
   useEffect(() => {
@@ -83,6 +99,12 @@ export default function Home() {
     setRefreshTrigger(prev => prev + 1);
   };
 
+  const handleConnectionStatusChange = (connected: boolean) => {
+    if (connected) {
+      setHasConnected(true);
+    }
+  };
+
   return (
     <div className={styles.container}>
       <Sidebar 
@@ -122,11 +144,21 @@ export default function Home() {
                 abortControllerRef={abortControllerRef}
                 setShowIngestion={setShowIngestion}
                 currentChatId={currentChatId}
+                onConnectionStatusChange={handleConnectionStatusChange}
               />
             </div>
           )}
         </div>
       </div>
+
+      {!hasConnected && (
+        <div className={styles.startupOverlay}>
+          <div className={styles.startupCard}>
+            <div className={styles.startupTitle}>Configuring sand to think</div>
+            <div className={styles.startupEllipsis}>{ellipsis}</div>
+          </div>
+        </div>
+      )}
 
       {showIngestion && (
         <>

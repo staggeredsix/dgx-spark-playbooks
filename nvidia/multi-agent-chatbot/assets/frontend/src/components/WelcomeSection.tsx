@@ -42,7 +42,7 @@ My palette is:
   return (
     <div className={styles.welcomeContainer}>
       <div className={styles.welcomeMessage}>
-        Hello! Send a message to start chatting with Spark.
+        Hello! Send a message to start chatting with DGX Station.
       </div>
       <div className={styles.agentCards}>
         <div 
