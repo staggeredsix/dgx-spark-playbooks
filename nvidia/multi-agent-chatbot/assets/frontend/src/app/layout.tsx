@@ -15,11 +15,8 @@
 # limitations under the License.
 */
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 import ThemeToggle from "@/components/ThemeToggle";
-
-const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Spark Chat",
@@ -33,7 +30,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="h-full">
-      <body className={`${inter.className} h-full bg-white dark:bg-gray-900 text-gray-900 dark:text-white transition-colors duration-200`}>
+      <body className="h-full bg-white dark:bg-gray-900 text-gray-900 dark:text-white transition-colors duration-200">
         <ThemeToggle />
         {children}
       </body>

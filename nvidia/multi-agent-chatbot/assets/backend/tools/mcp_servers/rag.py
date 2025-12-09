@@ -147,10 +147,20 @@ class RAGAgent:
         })
         
         context = state.get("context", [])
-        
-        if not context: 
+
+        if not context:
             logger.warning({"message": "No context available for generation", "question": state['question']})
-            docs_content = "No relevant documents were found."
+            return {
+                "messages": [
+                    HumanMessage(content=state["question"]),
+                    AIMessage(
+                        content=(
+                            "I couldn't find any matching documents for your request. "
+                            "Please upload or select a source, then try again."
+                        )
+                    ),
+                ]
+            }
         else:
             logger.info({"message": "Generating with context", "context_count": len(context)})
             docs_content = self._hydrate_context(context)

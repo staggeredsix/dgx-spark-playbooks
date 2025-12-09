@@ -456,7 +456,11 @@ async def download_flux_model(request: FluxDownloadRequest):
     if not hf_token:
         raise HTTPException(status_code=400, detail="Hugging Face token is required to download the FLUX model.")
 
-    cache_dir = os.getenv("FLUX_MODEL_DIR") or os.getenv("HUGGINGFACE_HUB_CACHE")
+    cache_dir = (
+        os.getenv("FLUX_MODEL_DIR")
+        or os.getenv("HUGGINGFACE_HUB_CACHE")
+        or "flux-fp4"
+    )
 
     try:
         path = await asyncio.to_thread(
@@ -466,6 +470,7 @@ async def download_flux_model(request: FluxDownloadRequest):
             token=hf_token,
             local_dir=cache_dir,
             local_dir_use_symlinks=False,
+            allow_patterns=["transformer.opt/fp4/*"],
         )
         return {"status": "success", "model": model_id, "path": path}
     except Exception as e:
