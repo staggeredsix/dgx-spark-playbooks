@@ -58,15 +58,31 @@ export const resolveBackendTarget = (): BackendTarget => {
         ? window.location.hostname
         : "localhost";
 
-  const port = process.env.NEXT_PUBLIC_BACKEND_PORT || envHostPort || "8000";
+  const port =
+    process.env.NEXT_PUBLIC_BACKEND_PORT ||
+    envHostPort ||
+    (typeof window !== "undefined" ? window.location.port : "8000");
 
   return { protocol, host, port };
 };
 
+const normalizePath = (path: string): string =>
+  path.startsWith("/") ? path : `/${path}`;
+
+const shouldUseApiProxy = (): boolean => {
+  const flag = process.env.NEXT_PUBLIC_USE_API_PROXY;
+  return flag === undefined || flag.toLowerCase() !== "false";
+};
+
 export const buildBackendUrl = (path: string): string => {
+  const normalizedPath = normalizePath(path);
+
+  if (shouldUseApiProxy()) {
+    return `/api${normalizedPath}`;
+  }
+
   const { protocol, host, port } = resolveBackendTarget();
 
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   const portSegment = port ? `:${port}` : "";
 
   return `${protocol}://${host}${portSegment}${normalizedPath}`;
@@ -74,3 +90,19 @@ export const buildBackendUrl = (path: string): string => {
 
 export const backendFetch = (path: string, init?: RequestInit) =>
   fetch(buildBackendUrl(path), init);
+
+export const buildWebSocketUrl = (path: string): string => {
+  const normalizedPath = normalizePath(path);
+
+  if (shouldUseApiProxy() && typeof window !== "undefined") {
+    const isSecure = window.location.protocol === "https:";
+    const wsProtocol = isSecure ? "wss" : "ws";
+    return `${wsProtocol}://${window.location.host}/api${normalizedPath}`;
+  }
+
+  const { protocol, host, port } = resolveBackendTarget();
+  const wsProtocol = protocol === "https" || protocol === "wss" ? "wss" : "ws";
+  const portSegment = port ? `:${port}` : "";
+
+  return `${wsProtocol}://${host}${portSegment}${normalizedPath}`;
+};
