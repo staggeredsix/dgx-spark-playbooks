@@ -197,8 +197,13 @@ class PostgreSQLConversationStorage:
                 DO $$
                 BEGIN
                     IF NOT EXISTS (
-                        SELECT 1 FROM information_schema.constraint_column_usage
-                        WHERE table_name = 'images' AND constraint_name = 'images_chat_id_fkey'
+                        SELECT 1
+                        FROM pg_constraint con
+                        JOIN pg_class rel ON rel.oid = con.conrelid
+                        JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+                        WHERE rel.relname = 'images'
+                        AND con.conname = 'images_chat_id_fkey'
+                        AND nsp.nspname = ANY (current_schemas(false))
                     ) THEN
                         ALTER TABLE images
                         ADD CONSTRAINT images_chat_id_fkey
