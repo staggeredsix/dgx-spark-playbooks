@@ -87,7 +87,7 @@ from huggingface_hub import snapshot_download
 
 model = os.environ.get("FLUX_MODEL", "black-forest-labs/FLUX.1-dev-onnx/transformer.opt/fp4")
 token = os.environ.get("HF_TOKEN")
-local_dir = os.environ.get("FLUX_MODEL_DIR") or os.environ.get("HUGGINGFACE_HUB_CACHE")
+local_dir = os.environ.get("FLUX_MODEL_DIR") or os.environ.get("HUGGINGFACE_HUB_CACHE") or "flux-fp4"
 
 path = snapshot_download(
     repo_id=model,
@@ -95,6 +95,7 @@ path = snapshot_download(
     token=token,
     local_dir=local_dir,
     local_dir_use_symlinks=False,
+    allow_patterns=["transformer.opt/fp4/*"],
 )
 print(f"FLUX model ready at: {path}")
 PY
