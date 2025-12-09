@@ -253,6 +253,7 @@ export default function Home() {
                 setShowIngestion={setShowIngestion}
                 currentChatId={currentChatId}
                 warmupComplete={warmupComplete}
+                loadingDismissed={loadingDismissed}
               />
             </div>
           )}

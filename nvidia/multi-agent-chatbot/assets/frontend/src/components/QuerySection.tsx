@@ -166,6 +166,7 @@ interface QuerySectionProps {
   setShowIngestion: (value: boolean) => void;
   currentChatId: string | null;
   warmupComplete: boolean;
+  loadingDismissed: boolean;
 }
 
 interface Message {
@@ -187,6 +188,7 @@ export default function QuerySection({
   setShowIngestion,
   currentChatId,
   warmupComplete,
+  loadingDismissed,
 }: QuerySectionProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -236,7 +238,7 @@ export default function QuerySection({
 
 
   useEffect(() => {
-    if (!warmupComplete) return;
+    if (!warmupComplete && !loadingDismissed) return;
 
     const fetchSelectedSources = async () => {
       try {
@@ -250,11 +252,11 @@ export default function QuerySection({
       }
     };
     fetchSelectedSources();
-  }, [warmupComplete]);
+  }, [warmupComplete, loadingDismissed]);
 
   useEffect(() => {
     const initWebSocket = async () => {
-      if (!currentChatId || !warmupComplete) return;
+      if (!currentChatId || (!warmupComplete && !loadingDismissed)) return;
 
       try {
         if (wsRef.current) {
@@ -380,7 +382,7 @@ export default function QuerySection({
         wsRef.current.close();
       }
     };
-  }, [currentChatId, warmupComplete]);
+  }, [currentChatId, warmupComplete, loadingDismissed]);
 
   useEffect(() => {
     const messages = normalizeMessages(response);
@@ -519,7 +521,8 @@ export default function QuerySection({
   const handleQuerySubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const currentQuery = query.trim();
-    if (!warmupComplete || ((!currentQuery && !attachment) || isStreaming || !wsRef.current)) return;
+    const warmupReady = warmupComplete || loadingDismissed;
+    if (!warmupReady || ((!currentQuery && !attachment) || isStreaming || !wsRef.current)) return;
 
     setQuery("");
     setIsStreaming(true);
