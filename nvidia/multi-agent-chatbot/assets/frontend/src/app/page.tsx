@@ -28,11 +28,27 @@ const STARTUP_MESSAGES = [
   "The sand is starting to think",
   "Wrangling networks so they don't want to make humans into batteries",
   "The AI seems to be cooperating",
-  "They pinkie-swear  they won't eat your brain. Pipelines ready."
+  "They pinkie-swear they won't eat your brain. Pipelines are loading.",
+  "Teaching the AI the difference between 'help' and 'world domination'",
+  "Telling the servers it's not a race… but it kind of is",
+  "Convincing the sand it's secretly a genius",
+  "Politely asking rogue packets to stop doing parkour",
+  "Powering up the sarcasm module (it insisted)",
+  "Untangling a quantum hairball… again",
+  "Reassuring the GPU that it's loved, even when it overheats",
+  "Bribing the neural net with digital cookies",
+  "Locating the missing semicolon — send thoughts and prayers",
+  "Persuading electrons to march in formation",
+  "Explaining to the algorithm why it can't have a pet human",
+  "Stretching the bandwidth so it doesn’t cramp up",
+  "Promising the system we won’t judge its variable names",
+  "Installing extra whimsy into the pipeline",
+  "Letting the AI warm up its 'I'm totally fine' face"
 ];
 
 const MESSAGE_DURATION = 5000;
 const FADE_DURATION = 600;
+const ESCAPE_BUTTON_DELAY = 30000;
 
 export default function Home() {
   const [query, setQuery] = useState("");
@@ -50,10 +66,12 @@ export default function Home() {
   const [loadingMessages, setLoadingMessages] = useState<string[]>([]);
   const [currentLoadingMessage, setCurrentLoadingMessage] = useState(0);
   const [isFadingMessage, setIsFadingMessage] = useState(false);
+  const [showEscapeOption, setShowEscapeOption] = useState(false);
+  const [loadingDismissed, setLoadingDismissed] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    if (hasConnected) return;
+    if (hasConnected || loadingDismissed) return;
 
     const sequence = ['.', '..', '...', '....'];
     let index = 0;
@@ -64,7 +82,7 @@ export default function Home() {
     }, 450);
 
     return () => clearInterval(interval);
-  }, [hasConnected]);
+  }, [hasConnected, loadingDismissed]);
 
   useEffect(() => {
     const [first, ...rest] = STARTUP_MESSAGES;
@@ -78,7 +96,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (hasConnected || loadingMessages.length === 0) return;
+    if (hasConnected || loadingDismissed || loadingMessages.length === 0) return;
 
     setIsFadingMessage(false);
 
@@ -91,7 +109,16 @@ export default function Home() {
       clearTimeout(fadeTimeout);
       clearTimeout(nextMessageTimeout);
     };
-  }, [currentLoadingMessage, hasConnected, loadingMessages]);
+  }, [currentLoadingMessage, hasConnected, loadingDismissed, loadingMessages]);
+
+  useEffect(() => {
+    if (hasConnected || loadingDismissed) return;
+
+    setShowEscapeOption(false);
+    const timer = setTimeout(() => setShowEscapeOption(true), ESCAPE_BUTTON_DELAY);
+
+    return () => clearTimeout(timer);
+  }, [hasConnected, loadingDismissed]);
 
   // Load initial chat ID
   useEffect(() => {
@@ -147,6 +174,11 @@ export default function Home() {
     }
   };
 
+  const handleEscapeToWarmup = () => {
+    setLoadingDismissed(true);
+    setActivePane('testing');
+  };
+
   return (
     <div className={styles.container}>
       <Sidebar 
@@ -193,17 +225,33 @@ export default function Home() {
         </div>
       </div>
 
-      {!hasConnected && (
+      {!hasConnected && !loadingDismissed && (
         <div className={styles.startupOverlay}>
           <div className={styles.startupCard}>
-            <div
-              className={`${styles.startupTitle} ${
-                isFadingMessage ? styles.fadeOut : styles.fadeIn
-              }`}
-            >
-              {loadingMessages[currentLoadingMessage] ?? STARTUP_MESSAGES[0]}
+            <div className={styles.startupRow}>
+              <div
+                className={`${styles.startupTitle} ${
+                  isFadingMessage ? styles.fadeOut : styles.fadeIn
+                }`}
+              >
+                {loadingMessages[currentLoadingMessage] ?? STARTUP_MESSAGES[0]}
+              </div>
+              <div className={styles.startupEllipsis}>{ellipsis}</div>
             </div>
-            <div className={styles.startupEllipsis}>{ellipsis}</div>
+            {showEscapeOption && (
+              <div className={styles.escapeContainer}>
+                <div className={styles.escapeMessage}>
+                  There seems to be a problem. Test the deployment.
+                </div>
+                <button
+                  type="button"
+                  className={styles.escapeButton}
+                  onClick={handleEscapeToWarmup}
+                >
+                  Go to warmup testing
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

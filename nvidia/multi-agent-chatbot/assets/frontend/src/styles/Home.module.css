@@ -165,9 +165,16 @@
   border-radius: 16px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
   display: flex;
+  flex-direction: column;
   gap: 12px;
-  align-items: center;
+  align-items: flex-start;
   border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.startupRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .startupTitle {
@@ -184,6 +191,41 @@
   justify-content: flex-start;
   color: #86efac;
   font-variant-numeric: tabular-nums;
+}
+
+.escapeContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.escapeMessage {
+  font-size: 0.95rem;
+  color: #cbd5e1;
+}
+
+.escapeButton {
+  background: #38bdf8;
+  color: #0f172a;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+  box-shadow: 0 10px 25px rgba(56, 189, 248, 0.25);
+}
+
+.escapeButton:hover {
+  background: #22d3ee;
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px rgba(34, 211, 238, 0.35);
+}
+
+.escapeButton:active {
+  transform: translateY(0);
+  box-shadow: 0 8px 20px rgba(34, 211, 238, 0.3);
 }
 
 .fadeIn {
