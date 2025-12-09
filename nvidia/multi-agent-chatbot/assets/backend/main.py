@@ -170,7 +170,7 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: str):
 
             image_data = None
             if image_id:
-                image_data = await postgres_storage.get_image(image_id)
+                image_data = await postgres_storage.get_image(image_id, chat_id)
                 logger.debug(
                     f"Retrieved image data for image_id: {image_id}, data length: {len(image_data) if image_data else 0}"
                 )
@@ -206,7 +206,7 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: str):
         logger.error(f"WebSocket error for chat {chat_id}: {str(e)}", exc_info=True)
 
 
-async def _store_media(upload: UploadFile) -> str:
+async def _store_media(upload: UploadFile, chat_id: str) -> str:
     try:
         payloads = process_uploaded_media(upload)
     except ValueError as exc:
@@ -219,7 +219,7 @@ async def _store_media(upload: UploadFile) -> str:
         serialized = json.dumps({"data": payloads})
     else:
         serialized = payloads[0]
-    await postgres_storage.store_image(media_id, serialized)
+    await postgres_storage.store_image(media_id, serialized, chat_id)
     return media_id
 
 
@@ -227,7 +227,10 @@ async def _store_media(upload: UploadFile) -> str:
 @app.post("/upload-media")
 async def upload_media(media: UploadFile = File(...), chat_id: str = Form(...)):
     """Upload and store image or video content for chat processing."""
-    media_id = await _store_media(media)
+    if not chat_id:
+        raise HTTPException(status_code=400, detail="chat_id is required")
+
+    media_id = await _store_media(media, chat_id)
     return {"image_id": media_id}
 
 

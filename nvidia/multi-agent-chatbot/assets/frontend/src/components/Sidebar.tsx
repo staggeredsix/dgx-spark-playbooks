@@ -63,9 +63,11 @@ export default function Sidebar({
   const [tavilyApiKey, setTavilyApiKey] = useState("");
   const [isSavingTavily, setIsSavingTavily] = useState(false);
   const [tavilyStatus, setTavilyStatus] = useState<string | null>(null);
-  
+
   // Add ref for chat list
   const chatListRef = useRef<HTMLDivElement>(null);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const toggleButtonRef = useRef<HTMLButtonElement>(null);
 
   // Load initial configuration
   useEffect(() => {
@@ -267,6 +269,25 @@ export default function Sidebar({
       handleClose();
     }
   };
+
+  useEffect(() => {
+    if (!isVisible) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+
+      if (sidebarRef.current?.contains(target)) return;
+      if (toggleButtonRef.current?.contains(target)) return;
+
+      handleClose();
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isVisible]);
 
   const toggleSection = (section: string) => {
     const newExpandedSections = new Set(expandedSections);
@@ -546,22 +567,26 @@ export default function Sidebar({
 
   return (
     <>
-      <button 
-        className={`${styles.toggleSidebarButton} ${isVisible && !isClosing ? styles.active : ''}`} 
+      <button
+        className={`${styles.toggleSidebarButton} ${isVisible && !isClosing ? styles.active : ''}`}
         onClick={toggleSidebar}
+        ref={toggleButtonRef}
       >
         ☰
       </button>
-      
+
       {isVisible && (
         <>
-          <div 
-            className={`${styles.sidebarOverlay} ${isClosing ? styles.closing : ''}`} 
-            onClick={handleClose} 
+          <div
+            className={`${styles.sidebarOverlay} ${isClosing ? styles.closing : ''}`}
+            onClick={handleClose}
           />
-          <div className={`${styles.sidebar} ${isClosing ? styles.closing : ''}`}>
-            <button 
-              className={styles.closeSidebarButton} 
+          <div
+            className={`${styles.sidebar} ${isClosing ? styles.closing : ''}`}
+            ref={sidebarRef}
+          >
+            <button
+              className={styles.closeSidebarButton}
               onClick={handleClose}
             >
               ×
