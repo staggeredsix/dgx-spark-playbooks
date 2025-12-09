@@ -299,6 +299,14 @@ class WarmupManager:
                 {"timestamp": 1.5, "data": provided_media},
             ]
 
+            expected_weather_tools = {"get_weather", "get_rain_forecast"}
+            missing_weather_tools = expected_weather_tools - tool_names
+            if missing_weather_tools:
+                self.logs.append(
+                    "Missing expected weather tools at startup: "
+                    + ", ".join(sorted(missing_weather_tools))
+                )
+
             tests: List[Dict[str, Any]] = [
                 {
                     "name": "tooling-check",
@@ -324,15 +332,6 @@ class WarmupManager:
                         "about NVIDIA's latest announcements. Include at least one source."
                     ),
                     "required_tools": {"generic_web_search"},
-                },
-                {
-                    "name": "weather-batch",
-                    "prompt": (
-                        "Call both get_weather for San Francisco and get_rain_forecast "
-                        "for Seattle. Use the two tools separately and summarize the "
-                        "results."
-                    ),
-                    "required_tools": {"get_weather", "get_rain_forecast"},
                 },
                 {
                     "name": "vision-check",
@@ -362,6 +361,25 @@ class WarmupManager:
                 },
             ]
 
+            weather_prompt_parts = []
+            if "get_weather" in expected_weather_tools:
+                weather_prompt_parts.append(
+                    "Call get_weather for San Francisco and summarize the forecast you receive."
+                )
+            if "get_rain_forecast" in expected_weather_tools:
+                weather_prompt_parts.append(
+                    "Call get_rain_forecast for Seattle and summarize the rain outlook."
+                )
+
+            tests.insert(
+                3,
+                {
+                    "name": "weather-batch",
+                    "prompt": " ".join(weather_prompt_parts),
+                    "required_tools": expected_weather_tools,
+                },
+            )
+
             if "search_documents" in untested_tools:
                 tests.append(
                     {
@@ -381,6 +399,7 @@ class WarmupManager:
                     prompt=test["prompt"],
                     required_tools=test["required_tools"],
                     image_data=test.get("image_data"),
+                    enforce_required_tools=test.get("enforce_required_tools", True),
                 )
 
                 if test["name"] in {"vision-check", "video-check"}:
@@ -415,6 +434,7 @@ class WarmupManager:
         required_tools: Iterable[str],
         log_only: bool = False,
         image_data: Optional[str | List[str] | List[dict] | dict] = None,
+        enforce_required_tools: bool = True,
     ) -> Dict[str, Any]:
         """Send a prompt through the supervisor and capture tool usage."""
 
@@ -466,13 +486,17 @@ class WarmupManager:
 
         body = final_message or "".join(tokens)
         missing_tools = required - tools_used if required else set()
-        success = error is None and not missing_tools
+        success = error is None and (not enforce_required_tools or not missing_tools)
 
         detail_parts = []
         if error:
             detail_parts.append(f"Error: {error}")
         if missing_tools:
-            detail_parts.append(f"Missing tools: {', '.join(sorted(missing_tools))}")
+            detail_parts.append(
+                "Missing tools: "
+                + ", ".join(sorted(missing_tools))
+                + (" (warning only)" if not enforce_required_tools else "")
+            )
         if not detail_parts:
             detail_parts.append("Completed without detected errors")
 

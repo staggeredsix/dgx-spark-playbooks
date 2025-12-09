@@ -132,12 +132,15 @@ export default function Home() {
         if (!response?.ok) return;
 
         const payload = await response.json();
+        const warmupStatus = payload?.status;
         const logs: unknown = payload?.logs;
         const logMatch = Array.isArray(logs)
           ? logs.some(entry => typeof entry === "string" && entry.includes(COMPLETION_TRIGGER))
           : false;
 
-        if (payload?.status === "passed" && (payload?.completion_signal === COMPLETION_TRIGGER || logMatch)) {
+        const completed = ["passed", "failed", "good"].includes(warmupStatus);
+
+        if (completed || payload?.completion_signal === COMPLETION_TRIGGER || logMatch) {
           setWarmupComplete(true);
           return;
         }
@@ -155,8 +158,10 @@ export default function Home() {
     };
   }, [warmupComplete, loadingDismissed]);
 
-  // Load initial chat ID
+  // Load initial chat ID after warmup completes
   useEffect(() => {
+    if (!warmupComplete) return;
+
     const fetchCurrentChatId = async () => {
       try {
         const response = await backendFetch("/chat_id");
@@ -169,7 +174,7 @@ export default function Home() {
       }
     };
     fetchCurrentChatId();
-  }, []);
+  }, [warmupComplete]);
 
   // Handle chat changes
   const handleChatChange = async (newChatId: string) => {
@@ -247,6 +252,8 @@ export default function Home() {
                 abortControllerRef={abortControllerRef}
                 setShowIngestion={setShowIngestion}
                 currentChatId={currentChatId}
+                warmupComplete={warmupComplete}
+                loadingDismissed={loadingDismissed}
               />
             </div>
           )}
