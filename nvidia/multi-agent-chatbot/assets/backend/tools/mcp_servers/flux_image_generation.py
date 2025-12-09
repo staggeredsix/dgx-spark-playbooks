@@ -27,7 +27,11 @@ from typing import Optional
 
 import numpy as np
 import onnxruntime as ort
-from diffusers import FluxOnnxPipeline
+
+try:  # Flux ONNX is only available in more recent diffusers versions
+    from diffusers import FluxOnnxPipeline
+except ImportError:  # pragma: no cover - depends on installed diffusers version
+    FluxOnnxPipeline = None
 from huggingface_hub import snapshot_download
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
@@ -81,6 +85,12 @@ async def generate_image(
     token = _resolve_hf_token(hf_api_key)
 
     def _load_pipeline() -> FluxOnnxPipeline:
+        if FluxOnnxPipeline is None:
+            raise ImportError(
+                "FluxOnnxPipeline is unavailable in the installed diffusers package. "
+                "Install a diffusers version that includes ONNX FLUX support (e.g., diffusers[onnx]>=0.32) to enable this tool."
+            )
+
         cache_dir = os.getenv("FLUX_MODEL_DIR") or os.getenv("HUGGINGFACE_HUB_CACHE")
 
         try:
