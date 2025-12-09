@@ -5,6 +5,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { backendFetch } from "@/utils/backend";
 import styles from "@/styles/WarmupStatus.module.css";
 
 type WarmupResult = {
@@ -24,7 +25,7 @@ type WarmupPayload = {
 
 async function fetchWarmupStatus(): Promise<WarmupPayload | null> {
   try {
-    const response = await fetch("/api/warmup/status");
+    const response = await backendFetch("/warmup/status");
     if (!response.ok) return null;
     return await response.json();
   } catch (error) {
@@ -35,7 +36,7 @@ async function fetchWarmupStatus(): Promise<WarmupPayload | null> {
 
 async function triggerWarmupRun(): Promise<void> {
   try {
-    await fetch("/api/warmup/run", { method: "POST" });
+    await backendFetch("/warmup/run", { method: "POST" });
   } catch (error) {
     console.error("Warmup run trigger failed", error);
   }

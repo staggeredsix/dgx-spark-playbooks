@@ -175,6 +175,25 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: str):
                     f"Retrieved image data for image_id: {image_id}, data length: {len(image_data) if image_data else 0}"
                 )
 
+                if not image_data:
+                    warning = (
+                        "Uploaded media is not available for this chat. "
+                        "Please re-upload the attachment in the current conversation."
+                    )
+                    logger.warning(
+                        "Missing media for chat while processing message",
+                        extra={"chat_id": chat_id, "image_id": image_id},
+                    )
+                    try:
+                        await websocket.send_json({"type": "error", "content": warning})
+                    except WebSocketDisconnect:
+                        logger.debug(
+                            "Client disconnected while sending missing-media warning for chat %s", chat_id
+                        )
+                        break
+
+                    continue
+
             remote_media = collect_remote_media_from_text(new_message or "")
             merged_media = merge_media_payloads(image_data, remote_media)
 
