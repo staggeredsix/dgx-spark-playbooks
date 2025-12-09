@@ -15,7 +15,7 @@ import httpx
 from logger import logger
 
 
-COMPLETION_SIGNAL = "Ride, captain ride upon your mystery ship!"
+COMPLETION_SIGNAL = "Warmup complete"
 
 
 class WarmupManager:

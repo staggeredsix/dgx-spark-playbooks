@@ -229,7 +229,7 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: str):
 
 async def _store_media(upload: UploadFile, chat_id: str) -> str:
     try:
-        payloads = process_uploaded_media(upload)
+        payloads = await process_uploaded_media(upload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

@@ -111,9 +111,9 @@ def _normalize_payloads(payload: Sequence[str | dict] | str | dict | None) -> Li
     return [p for p in payload if isinstance(p, (str, dict))]
 
 
-def process_uploaded_media(file: UploadFile) -> List[str | dict]:
+async def process_uploaded_media(file: UploadFile) -> List[str | dict]:
     """Process an uploaded image or video into VLM-ready payloads."""
-    content = file.file.read()
+    content = await file.read()
     if not content:
         raise ValueError("Uploaded file is empty")
 
