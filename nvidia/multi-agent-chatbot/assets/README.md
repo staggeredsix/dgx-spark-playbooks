@@ -71,6 +71,8 @@ chmod +x model_download.sh
 ./model_download.sh
 ```
 
+> **FLUX fp4 location**: When you pull the optional FLUX fp4 weights with `scripts/download_flux.sh`, they are saved under `nvidia/multi-agent-chatbot/assets/flux-fp4` by default. You can override the destination by passing a directory path as the first argument.
+
 #### 4. Start the docker containers for the application
 This step starts the Ollama runtime, Qdrant, the backend API server, and the frontend UI. This step can take 10 to 20 minutes depending on network speed.
 ```bash
