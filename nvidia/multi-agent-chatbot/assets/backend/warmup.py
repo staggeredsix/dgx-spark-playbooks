@@ -243,7 +243,7 @@ class WarmupManager:
         """Kick off the warmup suite if not already running."""
 
         async with self._lock:
-            if self.status == "running":
+            if self.status in {"running", "passed"}:
                 return self.status_payload
 
             self.status = "running"
