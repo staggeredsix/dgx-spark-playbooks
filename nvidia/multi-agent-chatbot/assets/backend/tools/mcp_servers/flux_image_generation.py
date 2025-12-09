@@ -25,7 +25,10 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from huggingface_hub import InferenceClient
+import numpy as np
+import onnxruntime as ort
+from diffusers import FluxOnnxPipeline
+from huggingface_hub import snapshot_download
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
 from PIL import Image
@@ -77,20 +80,51 @@ async def generate_image(
     resolved_model = _resolve_model(model)
     token = _resolve_hf_token(hf_api_key)
 
-    if not token:
-        raise ValueError(
-            "A Hugging Face API token is required for FLUX image generation. "
-            "Set it in advanced settings or the HF_TOKEN/HUGGINGFACEHUB_API_TOKEN environment variable."
-        )
+    def _load_pipeline() -> FluxOnnxPipeline:
+        cache_dir = os.getenv("FLUX_MODEL_DIR") or os.getenv("HUGGINGFACE_HUB_CACHE")
+
+        try:
+            local_path = snapshot_download(
+                repo_id=resolved_model,
+                repo_type="model",
+                token=token,
+                local_dir=cache_dir,
+                local_dir_use_symlinks=False,
+                local_files_only=True,
+            )
+        except Exception:
+            if not token:
+                raise ValueError(
+                    "FLUX model is not available in the local cache. "
+                    "Download it via /download/flux or provide an HF token in settings or the HF_TOKEN/HUGGINGFACEHUB_API_TOKEN environment variable."
+                )
+
+            local_path = snapshot_download(
+                repo_id=resolved_model,
+                repo_type="model",
+                token=token,
+                local_dir=cache_dir,
+                local_dir_use_symlinks=False,
+            )
+
+        available_providers = ort.get_available_providers()
+        provider = "CUDAExecutionProvider" if "CUDAExecutionProvider" in available_providers else "CPUExecutionProvider"
+
+        return FluxOnnxPipeline.from_pretrained(local_path, provider=provider, token=token)
 
     def _run_inference():
-        client = InferenceClient(token=token)
-        image = client.text_to_image(
+        try:
+            pipeline = _load_pipeline()
+        except Exception as exc:  # pragma: no cover - defensive logging path
+            raise RuntimeError(f"Failed to initialize FLUX pipeline: {exc}") from exc
+
+        generator = np.random.RandomState(seed) if seed is not None else None
+        image = pipeline(
             prompt=prompt,
             negative_prompt=negative_prompt,
-            seed=seed,
-            model=resolved_model,
-        )
+            num_inference_steps=4,
+            generator=generator,
+        ).images[0]
 
         if isinstance(image, bytes):
             image_bytes = image
