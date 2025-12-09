@@ -91,7 +91,11 @@ async def generate_image(
                 "Install a diffusers version that includes ONNX FLUX support (e.g., diffusers[onnx]>=0.32) to enable this tool."
             )
 
-        cache_dir = os.getenv("FLUX_MODEL_DIR") or os.getenv("HUGGINGFACE_HUB_CACHE")
+        cache_dir = (
+            os.getenv("FLUX_MODEL_DIR")
+            or os.getenv("HUGGINGFACE_HUB_CACHE")
+            or "flux-fp4"
+        )
 
         try:
             local_path = snapshot_download(
