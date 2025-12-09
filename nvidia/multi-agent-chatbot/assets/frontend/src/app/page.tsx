@@ -63,7 +63,6 @@ export default function Home() {
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [activePane, setActivePane] = useState<'chat' | 'testing'>('chat');
   const [warmupComplete, setWarmupComplete] = useState(false);
-  const [completionSignal, setCompletionSignal] = useState<string | null>(null);
   const [ellipsis, setEllipsis] = useState('.');
   const [loadingMessages, setLoadingMessages] = useState<string[]>([]);
   const [currentLoadingMessage, setCurrentLoadingMessage] = useState(0);
@@ -133,14 +132,12 @@ export default function Home() {
         if (!response?.ok) return;
 
         const payload = await response.json();
-        const completion = payload?.completion_signal as string | undefined;
         const logs: unknown = payload?.logs;
         const logMatch = Array.isArray(logs)
           ? logs.some(entry => typeof entry === "string" && entry.includes(COMPLETION_TRIGGER))
           : false;
 
-        if (payload?.status === "passed" && (completion === COMPLETION_TRIGGER || logMatch)) {
-          setCompletionSignal(completion || COMPLETION_TRIGGER);
+        if (payload?.status === "passed" && (payload?.completion_signal === COMPLETION_TRIGGER || logMatch)) {
           setWarmupComplete(true);
           return;
         }
@@ -213,9 +210,6 @@ export default function Home() {
 
   return (
     <div className={styles.container}>
-      {completionSignal && warmupComplete && (
-        <div className={styles.startupCompletionBanner}>{completionSignal}</div>
-      )}
       <Sidebar
         showIngestion={showIngestion}
         setShowIngestion={setShowIngestion}

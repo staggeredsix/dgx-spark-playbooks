@@ -25,6 +25,12 @@ class ChatConfig(BaseModel):
     current_chat_id: Optional[str] = None
     tavily_enabled: bool = False
     tavily_api_key: Optional[str] = None
+    supervisor_model: Optional[str] = None
+    code_model: Optional[str] = None
+    vision_model: Optional[str] = None
+    flux_enabled: bool = False
+    flux_model: Optional[str] = None
+    hf_api_key: Optional[str] = None
 
 class ChatIdRequest(BaseModel):
     chat_id: str
@@ -40,3 +46,12 @@ class SelectedModelRequest(BaseModel):
 class TavilySettingsRequest(BaseModel):
     enabled: bool
     api_key: Optional[str] = None
+
+
+class ModelSettingsRequest(BaseModel):
+    supervisor_model: Optional[str] = None
+    code_model: Optional[str] = None
+    vision_model: Optional[str] = None
+    flux_enabled: Optional[bool] = None
+    flux_model: Optional[str] = None
+    hf_api_key: Optional[str] = None

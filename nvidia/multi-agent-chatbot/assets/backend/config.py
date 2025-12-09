@@ -20,7 +20,7 @@ import json
 import os
 import logging
 import threading
-from typing import List
+from typing import List, Optional
 
 from logger import logger
 from models import ChatConfig
@@ -35,6 +35,10 @@ class ConfigManager:
         self._lock = threading.Lock()
         self._ensure_config_exists()
         self.read_config()
+
+    @property
+    def default_flux_model(self) -> str:
+        return "black-forest-labs/FLUX.1-dev-onnx/transformer.opt/fp4"
     
     def _ensure_config_exists(self) -> None:
         """Ensure config.json exists, creating it with default values if not."""
@@ -56,6 +60,12 @@ class ConfigManager:
                 current_chat_id=None,
                 tavily_enabled=False,
                 tavily_api_key=None,
+                supervisor_model=models[0] if models else None,
+                code_model=os.getenv("CODE_MODEL", "qwen3-coder:30b"),
+                vision_model=os.getenv("VISION_MODEL", "ministral-3:14b"),
+                flux_enabled=False,
+                flux_model=self.default_flux_model,
+                hf_api_key=None,
             )
             
             with open(self.config_path, "w") as f:
@@ -65,11 +75,20 @@ class ConfigManager:
                 with open(self.config_path, "r") as f:
                     data = json.load(f)
                 existing_config = ChatConfig(**data)
-                
+
                 if models:
                     existing_config.models = models
                     if not existing_config.selected_model or existing_config.selected_model not in models:
                         existing_config.selected_model = models[0]
+
+                if not existing_config.supervisor_model:
+                    existing_config.supervisor_model = existing_config.selected_model
+                if not existing_config.code_model:
+                    existing_config.code_model = os.getenv("CODE_MODEL", "qwen3-coder:30b")
+                if not existing_config.vision_model:
+                    existing_config.vision_model = os.getenv("VISION_MODEL", "ministral-3:14b")
+                if existing_config.flux_model is None:
+                    existing_config.flux_model = self.default_flux_model
                 
                 with open(self.config_path, "w") as f:
                     json.dump(existing_config.model_dump(), f, indent=2)
@@ -85,6 +104,12 @@ class ConfigManager:
                     current_chat_id=None,
                     tavily_enabled=False,
                     tavily_api_key=None,
+                    supervisor_model=models[0] if models else None,
+                    code_model=os.getenv("CODE_MODEL", "qwen3-coder:30b"),
+                    vision_model=os.getenv("VISION_MODEL", "ministral-3:14b"),
+                    flux_enabled=False,
+                    flux_model=self.default_flux_model,
+                    hf_api_key=None,
                 )
                 with open(self.config_path, "w") as f:
                     json.dump(default_config.model_dump(), f, indent=2)
@@ -116,6 +141,12 @@ class ConfigManager:
                         current_chat_id="1",
                         tavily_enabled=False,
                         tavily_api_key=None,
+                        supervisor_model=models[0] if models else None,
+                        code_model=os.getenv("CODE_MODEL", "qwen3-coder:30b"),
+                        vision_model=os.getenv("VISION_MODEL", "ministral-3:14b"),
+                        flux_enabled=False,
+                        flux_model=self.default_flux_model,
+                        hf_api_key=None,
                     )
                 return self.config
 
@@ -147,6 +178,18 @@ class ConfigManager:
         self.config = self.read_config()
         logger.debug(f"Selected model: {self.config.selected_model}")
         return self.config.selected_model
+
+    def get_supervisor_model(self) -> Optional[str]:
+        self.config = self.read_config()
+        return self.config.supervisor_model or self.config.selected_model
+
+    def get_code_model(self) -> Optional[str]:
+        self.config = self.read_config()
+        return self.config.code_model
+
+    def get_vision_model(self) -> Optional[str]:
+        self.config = self.read_config()
+        return self.config.vision_model
     
     def get_current_chat_id(self) -> str:
         """Return the current chat id."""
@@ -187,3 +230,50 @@ class ConfigManager:
             }
         )
         self.write_config(self.config)
+
+    def get_model_settings(self) -> dict:
+        config = self.read_config()
+        return {
+            "supervisor_model": config.supervisor_model or config.selected_model,
+            "code_model": config.code_model,
+            "vision_model": config.vision_model,
+            "flux_enabled": bool(config.flux_enabled),
+            "flux_model": config.flux_model or self.default_flux_model,
+            "hf_api_key": config.hf_api_key,
+        }
+
+    def update_model_settings(
+        self,
+        supervisor_model: Optional[str] = None,
+        code_model: Optional[str] = None,
+        vision_model: Optional[str] = None,
+        flux_enabled: Optional[bool] = None,
+        flux_model: Optional[str] = None,
+        hf_api_key: Optional[str] = None,
+    ) -> None:
+        config = self.read_config()
+
+        updates = {}
+        if supervisor_model:
+            updates["supervisor_model"] = supervisor_model
+            updates["selected_model"] = supervisor_model
+        if code_model:
+            updates["code_model"] = code_model
+        if vision_model:
+            updates["vision_model"] = vision_model
+        if flux_enabled is not None:
+            updates["flux_enabled"] = flux_enabled
+        if flux_model:
+            updates["flux_model"] = flux_model
+        if hf_api_key is not None:
+            updates["hf_api_key"] = hf_api_key
+
+        new_config = config.model_copy(update=updates)
+
+        # Keep track of models seen for convenience in dropdowns
+        known_models = set(new_config.models or [])
+        if supervisor_model:
+            known_models.add(supervisor_model)
+        new_config.models = list(known_models)
+
+        self.write_config(new_config)

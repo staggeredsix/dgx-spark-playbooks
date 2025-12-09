@@ -43,20 +43,32 @@ sys.path.append(str(project_root))
 from postgres_storage import PostgreSQLConversationStorage
 from utils_media import _download_url
 from logger import logger
+from config import ConfigManager
 
 
 mcp = FastMCP("image-understanding-server")
 
+CONFIG_PATH = project_root / "config.json"
+config_manager = ConfigManager(str(CONFIG_PATH))
 
-model_name = os.getenv("VISION_MODEL", "ministral-3:14b")
-model_base_url = os.getenv(
-    "VISION_LLM_API_BASE_URL",
-    os.getenv("LLM_API_BASE_URL", "http://ollama:11434/v1"),
-)
-model_client = OpenAI(
-    base_url=model_base_url,
-    api_key=os.getenv("LLM_API_KEY", "ollama"),
-)
+
+def _get_model_name() -> str:
+    configured = config_manager.get_vision_model()
+    return configured or os.getenv("VISION_MODEL", "ministral-3:14b")
+
+
+def _get_model_base_url() -> str:
+    return os.getenv(
+        "VISION_LLM_API_BASE_URL",
+        os.getenv("LLM_API_BASE_URL", "http://ollama:11434/v1"),
+    )
+
+
+def _get_model_client():
+    return OpenAI(
+        base_url=_get_model_base_url(),
+        api_key=os.getenv("LLM_API_KEY", "ollama"),
+    )
 _media_cache: Dict[str, str] = {}
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "postgres")
 POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", 5432))
@@ -214,14 +226,14 @@ def _to_base64_payload(img: str | dict) -> List[str]:
 def _ollama_root_url() -> str:
     """Return the Ollama root URL without the OpenAI compatibility suffix."""
 
-    root = model_base_url.rstrip("/")
+    root = _get_model_base_url().rstrip("/")
     if root.endswith("/v1"):
         root = root[: -len("/v1")]
     return root
 
 
 def _is_ollama_endpoint() -> bool:
-    parsed = urlparse(model_base_url)
+    parsed = urlparse(_get_model_base_url())
     host = parsed.hostname or ""
     return "ollama" in host or parsed.port == 11434
 
@@ -230,7 +242,7 @@ def _call_ollama_vision(prompt: str, images: list[str]):
     """Invoke Ollama's native vision endpoint using the generate API."""
 
     payload = {
-        "model": model_name,
+        "model": _get_model_name(),
         "prompt": prompt,
         "stream": False,
     }
@@ -251,6 +263,7 @@ def _ensure_vision_model_ready():
     """Eagerly start the VLM service before sending a chat completion."""
 
     root_url = _ollama_root_url()
+    model_name = _get_model_name()
     try:
         response = requests.post(
             f"{root_url}/api/show",
@@ -298,6 +311,9 @@ def _chunk_frames(frames: list[dict], max_frames: int = 20) -> list[list[dict]]:
 @mcp.tool()
 def explain_image(query: str, image: str | list[str | dict] | dict):
     """Analyze one or more images/videos (as frames) to answer the query."""
+    model_name = _get_model_name()
+    model_base_url = _get_model_base_url()
+    model_client = _get_model_client()
     images = _normalize_images(image)
     if not images:
         raise ValueError('Error: explain_image tool received an empty image payload.')
@@ -419,6 +435,10 @@ def explain_image(query: str, image: str | list[str | dict] | dict):
 @mcp.tool()
 def explain_video(query: str, video_frames: str | list[str | dict] | dict):
     """Analyze a sequence of video frames with timestamps to answer the query."""
+
+    model_name = _get_model_name()
+    model_base_url = _get_model_base_url()
+    model_client = _get_model_client()
 
     frames = _normalize_video_frames(video_frames)
     if not frames:

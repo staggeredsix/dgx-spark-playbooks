@@ -102,7 +102,7 @@ class ChatAgent:
         agent.system_prompt = Prompts.get_template("supervisor_agent").render(template_vars)
         
         logger.debug(f"Agent initialized with {len(available_tools)} tools.")
-        agent.set_current_model(config_manager.get_selected_model())
+        agent.set_current_model(config_manager.get_supervisor_model())
         return agent
 
     async def init_tools(self) -> None:
@@ -158,18 +158,24 @@ class ChatAgent:
         available_models = self.config_manager.get_available_models()
 
         try:
-            if model_name in available_models:
-                self.current_model = model_name
-                logger.info(f"Switched to model: {model_name}")
-                self.model_client = AsyncOpenAI(
-                    base_url=self.api_base,
-                    api_key=os.getenv("LLM_API_KEY", "ollama")
+            if model_name not in available_models:
+                logger.warning(
+                    {
+                        "message": "Model not present in available list; continuing anyway",
+                        "requested_model": model_name,
+                        "available_models": available_models,
+                    }
                 )
-            else:
-                raise ValueError(f"Model {model_name} is not available. Available models: {available_models}")
+
+            self.current_model = model_name
+            logger.info(f"Switched to model: {model_name}")
+            self.model_client = AsyncOpenAI(
+                base_url=self.api_base,
+                api_key=os.getenv("LLM_API_KEY", "ollama")
+            )
         except Exception as e:
             logger.error(f"Error setting current model: {e}")
-            raise ValueError(f"Model {model_name} is not available. Available models: {available_models}")
+            raise ValueError(f"Unable to set model: {model_name}")
 
     def should_continue(self, state: State) -> str:
         """Determine whether to continue the tool calling loop.
@@ -359,6 +365,26 @@ class ChatAgent:
 
         llm_output_buffer, tool_calls_buffer = await self._stream_response(stream, self.stream_callback)
         tool_calls = self._format_tool_calls(tool_calls_buffer)
+        if not tool_calls and state.get("image_data"):
+            has_video_frames = any(
+                isinstance(item, dict) and "timestamp" in item
+                for item in state.get("image_data", [])
+            )
+            forced_tool = "explain_video" if has_video_frames else "explain_image"
+            tool_calls = [
+                ToolCall(
+                    name=forced_tool,
+                    args={},
+                    id="auto_media_tool",
+                )
+            ]
+            logger.info(
+                {
+                    "message": "No tool calls returned; forcing media tool execution",
+                    "chat_id": state.get("chat_id"),
+                    "forced_tool": forced_tool,
+                }
+            )
         raw_output = "".join(llm_output_buffer)
 
         logger.info({
@@ -564,7 +590,7 @@ class ChatAgent:
             }
             
 
-            model_name = self.config_manager.get_selected_model()
+            model_name = self.config_manager.get_supervisor_model()
             if self.current_model != model_name:
                 self.set_current_model(model_name)
 

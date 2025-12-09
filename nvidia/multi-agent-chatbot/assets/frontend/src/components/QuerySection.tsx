@@ -274,6 +274,11 @@ export default function QuerySection({
               }
               break;
             }
+            case "stopped": {
+              setIsStreaming(false);
+              setGraphStatus("");
+              break;
+            }
             case "tool_token": {
               if (text !== undefined && text !== "undefined") {
                 setToolOutput(prev => prev + text);
@@ -579,11 +584,12 @@ export default function QuerySection({
   };
 
   const handleCancelStream = () => {
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-      setIsStreaming(false);
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "stop" }));
     }
+    setIsStreaming(false);
+    setGraphStatus("");
   };
 
   // filter out all ToolMessages
