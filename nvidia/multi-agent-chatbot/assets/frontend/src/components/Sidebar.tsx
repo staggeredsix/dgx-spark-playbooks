@@ -179,6 +179,19 @@ export default function Sidebar({
     }
   }, [refreshTrigger, fetchSources]);
 
+  const fetchTavilySettings = useCallback(async () => {
+    try {
+      const response = await backendFetch("/tavily");
+      if (!response.ok) return;
+
+      const data = await response.json();
+      setTavilyEnabled(Boolean(data.enabled));
+      setTavilyApiKey(data.api_key || "");
+    } catch (error) {
+      console.error("Error fetching Tavily settings:", error);
+    }
+  }, []);
+
   // Add function to fetch chat metadata
   const fetchChatMetadata = useCallback(async (chatId: string) => {
     try {
@@ -613,19 +626,6 @@ export default function Sidebar({
       setIsSavingAdvanced(false);
     }
   };
-
-  const fetchTavilySettings = useCallback(async () => {
-    try {
-      const response = await backendFetch("/tavily");
-      if (!response.ok) return;
-
-      const data = await response.json();
-      setTavilyEnabled(Boolean(data.enabled));
-      setTavilyApiKey(data.api_key || "");
-    } catch (error) {
-      console.error("Error fetching Tavily settings:", error);
-    }
-  }, []);
 
   const handleSaveTavily = async (event?: React.FormEvent) => {
     event?.preventDefault();
