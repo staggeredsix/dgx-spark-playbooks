@@ -16,6 +16,7 @@
 */
 "use client";
 import { useState, useRef, useEffect } from 'react';
+import { backendFetch } from '@/utils/backend';
 import QuerySection from '@/components/QuerySection';
 import DocumentIngestion from '@/components/DocumentIngestion';
 import Sidebar from '@/components/Sidebar';
@@ -96,7 +97,7 @@ export default function Home() {
   useEffect(() => {
     const fetchCurrentChatId = async () => {
       try {
-        const response = await fetch("/api/chat_id");
+        const response = await backendFetch("/chat_id");
         if (response.ok) {
           const { chat_id } = await response.json();
           setCurrentChatId(chat_id);
@@ -111,7 +112,7 @@ export default function Home() {
   // Handle chat changes
   const handleChatChange = async (newChatId: string) => {
     try {
-      const response = await fetch("/api/chat_id", {
+      const response = await backendFetch("/chat_id", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chat_id: newChatId })

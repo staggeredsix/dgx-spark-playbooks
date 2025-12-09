@@ -16,6 +16,7 @@
 */
 import type React from "react";
 import { useRef, useEffect, useState, useCallback } from "react";
+import { backendFetch, buildBackendUrl, resolveBackendTarget } from "@/utils/backend";
 import styles from "@/styles/QuerySection.module.css";
 import ReactMarkdown from 'react-markdown'; // NEW
 import remarkGfm from 'remark-gfm'; // NEW
@@ -235,7 +236,7 @@ export default function QuerySection({
   useEffect(() => {
     const fetchSelectedSources = async () => {
       try {
-        const response = await fetch("/api/selected_sources");
+        const response = await backendFetch("/selected_sources");
         if (response.ok) {
           const { sources } = await response.json();
           setSelectedSources(sources);
@@ -245,23 +246,6 @@ export default function QuerySection({
       }
     };
     fetchSelectedSources();
-  }, []);
-
-  const resolveBackendTarget = useCallback(() => {
-    const normalizeProtocol = (protocol?: string) => {
-      if (!protocol) return "";
-      return protocol.replace(/:?$/, "");
-    };
-
-    const protocol = normalizeProtocol(process.env.NEXT_PUBLIC_BACKEND_PROTOCOL)
-      || window.location.protocol.replace(/:?$/, "");
-
-    const envHost = process.env.NEXT_PUBLIC_BACKEND_HOST;
-    const host = envHost && envHost !== "backend" ? envHost : window.location.hostname;
-
-    const port = process.env.NEXT_PUBLIC_BACKEND_PORT || "8000";
-
-    return { protocol, host, port };
   }, []);
 
   useEffect(() => {
@@ -284,7 +268,7 @@ export default function QuerySection({
         ws.onmessage = (event) => {
           const msg = JSON.parse(event.data);
           const type = msg.type
-          const text = msg.data ?? msg.token ?? "";
+          const text = msg.data ?? msg.token ?? msg.content ?? "";
         
           switch (type) {
             case "history": {
@@ -337,6 +321,11 @@ export default function QuerySection({
             case "node_end": {
               console.log(type, msg.data);
               setGraphStatus("");
+              break;
+            }
+            case "error": {
+              setIsStreaming(false);
+              setAttachmentError(msg.content || text || "Attachment unavailable for this chat. Please re-upload.");
               break;
             }
             default: {
@@ -423,12 +412,6 @@ export default function QuerySection({
       isNearBottomRef.current = isNear;
     }
   }, []);
-
-  const getBackendBaseUrl = useCallback(() => {
-    const { protocol, host, port } = resolveBackendTarget();
-    return `${protocol}://${host}:${port}`;
-  }, [resolveBackendTarget]);
-
 
   const sendMessage = useCallback(async (payload: Record<string, unknown>) => {
     const ws = wsRef.current;
@@ -541,7 +524,7 @@ export default function QuerySection({
         setAttachmentError(null);
 
         try {
-          const uploadResponse = await fetch("/api/upload-media", {
+          const uploadResponse = await fetch(buildBackendUrl("/upload-media"), {
             method: "POST",
             body: formData
           });

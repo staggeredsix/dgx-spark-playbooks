@@ -15,6 +15,7 @@
 # limitations under the License.
 */
 import { SetStateAction, useState } from 'react';
+import { backendFetch } from '@/utils/backend';
 import styles from '@/styles/DocumentIngestion.module.css';
 
 declare module 'react' {
@@ -59,7 +60,7 @@ export default function DocumentIngestion({
           formData.append("files", files[i]);
         }
         
-        const res = await fetch("/api/ingest", {
+        const res = await backendFetch("/ingest", {
           method: "POST",
           body: formData,
         });

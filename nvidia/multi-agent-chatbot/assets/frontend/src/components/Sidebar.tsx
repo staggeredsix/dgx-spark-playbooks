@@ -15,6 +15,7 @@
 # limitations under the License.
 */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { backendFetch } from '@/utils/backend';
 import styles from '@/styles/Sidebar.module.css';
 
 interface Model {
@@ -76,14 +77,14 @@ export default function Sidebar({
         setIsLoading(true);
         
         // Get selected model
-        const modelResponse = await fetch("/api/selected_model");
+        const modelResponse = await backendFetch("/selected_model");
         if (modelResponse.ok) {
           const { model } = await modelResponse.json();
           setSelectedModel(model);
         }
 
         // Get selected sources
-        const sourcesResponse = await fetch("/api/selected_sources");
+        const sourcesResponse = await backendFetch("/selected_sources");
         if (sourcesResponse.ok) {
           const { sources } = await sourcesResponse.json();
           setSelectedSources(sources);
@@ -116,7 +117,7 @@ export default function Sidebar({
   const fetchAvailableModels = async () => {
     try {
       setIsLoadingModels(true);
-      const response = await fetch("/api/available_models");
+      const response = await backendFetch("/available_models");
       
       if (!response.ok) {
         const errorText = await response.text();
@@ -142,7 +143,7 @@ export default function Sidebar({
     try {
       setIsLoadingSources(true);
       console.log("Fetching sources...");
-      const response = await fetch("/api/sources");
+      const response = await backendFetch("/sources");
       
       if (!response.ok) {
         const errorText = await response.text();
@@ -179,7 +180,7 @@ export default function Sidebar({
   // Add function to fetch chat metadata
   const fetchChatMetadata = useCallback(async (chatId: string) => {
     try {
-      const response = await fetch(`/api/chat/${chatId}/metadata`);
+      const response = await backendFetch(`/chat/${chatId}/metadata`);
       if (response.ok) {
         const metadata = await response.json();
         setChatMetadata(prev => ({
@@ -197,7 +198,7 @@ export default function Sidebar({
     try {
       console.log("fetchChats: Starting to fetch chats...");
       setIsLoadingChats(true);
-      const response = await fetch("/api/chats");
+      const response = await backendFetch("/chats");
       if (response.ok) {
         const data = await response.json();
         console.log("fetchChats: Received chats:", data.chats);
@@ -321,7 +322,7 @@ export default function Sidebar({
     setSelectedSources(newSelectedSources);
     
     try {
-      const response = await fetch("/api/selected_sources", {
+      const response = await backendFetch("/selected_sources", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newSelectedSources)
@@ -357,7 +358,7 @@ export default function Sidebar({
     const newName = prompt("Enter new chat name:", currentName);
     if (newName && newName.trim() && newName !== currentName) {
       try {
-        const response = await fetch("/api/chat/rename", {
+        const response = await backendFetch("/chat/rename", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ chat_id: chatId, new_name: newName.trim() })
@@ -379,7 +380,7 @@ export default function Sidebar({
   const handleDeleteChat = async (chatId: string) => {
     try {
       // Delete the chat
-      const response = await fetch(`/api/chat/${chatId}`, {
+      const response = await backendFetch(`/chat/${chatId}`, {
         method: "DELETE"
       });
 
@@ -394,7 +395,7 @@ export default function Sidebar({
       // If we deleted the current chat
       if (currentChatId === chatId) {
         // Get updated list of chats
-        const chatsResponse = await fetch("/api/chats");
+        const chatsResponse = await backendFetch("/chats");
         const { chats: remainingChats } = await chatsResponse.json();
 
         if (remainingChats.length > 0) {
@@ -415,7 +416,7 @@ export default function Sidebar({
       console.log("handleNewChat: Starting new chat creation...");
       
       // Create new chat using backend endpoint
-      const response = await fetch("/api/chat/new", {
+      const response = await backendFetch("/chat/new", {
         method: "POST"
       });
       
@@ -467,7 +468,7 @@ export default function Sidebar({
     }
 
     try {
-      const response = await fetch("/api/chats/clear", {
+      const response = await backendFetch("/chats/clear", {
         method: "DELETE"
       });
 
@@ -505,7 +506,7 @@ export default function Sidebar({
     try {
       console.log("Updating selected model to:", newModel);
       
-      const response = await fetch("/api/selected_model", {
+      const response = await backendFetch("/selected_model", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model: newModel })
@@ -525,7 +526,7 @@ export default function Sidebar({
 
   const fetchTavilySettings = useCallback(async () => {
     try {
-      const response = await fetch("/api/tavily");
+      const response = await backendFetch("/tavily");
       if (!response.ok) return;
 
       const data = await response.json();
@@ -542,7 +543,7 @@ export default function Sidebar({
     setTavilyStatus(null);
 
     try {
-      const response = await fetch("/api/tavily", {
+      const response = await backendFetch("/tavily", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
