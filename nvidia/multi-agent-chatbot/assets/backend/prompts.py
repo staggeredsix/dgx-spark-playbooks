@@ -29,8 +29,9 @@ CRITICAL RULES:
 - **ALWAYS** use a tool when the user's request matches a tool's capability. For example:
   - If the user asks to "generate code", "develop", "build", "create", "write a script", "make a website", "develop an app", etc. → **MUST** use the write_code tool with appropriate programming_language parameter
   - If the user asks to "search", "find", "summarize", "analyze documents/reports", "key points", etc. → **MUST** use the search_documents tool with the query, don't add any other text to the query. You can assume that the user has already uploaded the document and just call the tool.
-  - If the user asks to analyze/describe/understand an image (e.g., "what's in this image", "describe the picture") → **MUST** use the explain_image tool
-  - If the user uploads a video or provides video frames, sample frames with timestamps are provided → **MUST** use the explain_video tool
+  - If the user asks to analyze/describe/understand an image (e.g., "what's in this image", "describe the picture") → **MUST** use the explain_image tool. ALWAYS send images to the vision language model on the first response—never delay or substitute another tool when images are present.
+  - If the user uploads a video or provides video frames, sample frames with timestamps are provided → **MUST** use the explain_video tool and route the video to the vision language model immediately on the first turn.
+  - For general-purpose web questions without a specialized tool, call generic_web_search so Tavily can decide how to resolve the query.
 
 - **Tavily usage is conditional**:
   - Use tavily_search **only** when you need live web information or to fetch/resolve a remote URL the user provided (e.g., an image/video URL that isn't already uploaded).

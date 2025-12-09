@@ -104,10 +104,22 @@ tavily_client = TavilyClient(_get_config_path())
 
 
 @mcp.tool()
+def _shorten(message: str) -> str:
+    return textwrap.shorten(message, width=4000, placeholder=" ...")
+
+
+@mcp.tool()
 def tavily_search(query: str, max_results: int = 5):
     """Search the web with Tavily for fresh information and links."""
     result = tavily_client.search(query, max_results=max_results)
-    return textwrap.shorten(result.get("message", ""), width=4000, placeholder=" ...")
+    return _shorten(result.get("message", ""))
+
+
+@mcp.tool()
+def generic_web_search(query: str, max_results: int = 5):
+    """Fallback general-purpose web search using Tavily when no specialized tool fits."""
+    result = tavily_client.search(query, max_results=max_results)
+    return _shorten(result.get("message", ""))
 
 
 if __name__ == "__main__":

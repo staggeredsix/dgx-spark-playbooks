@@ -15,6 +15,9 @@ import httpx
 from logger import logger
 
 
+COMPLETION_SIGNAL = "Ride, captain ride upon your mystery ship!"
+
+
 class WarmupManager:
     """Coordinates startup and UI-triggered warmup flows.
 
@@ -29,6 +32,7 @@ class WarmupManager:
         self.results: List[Dict[str, Any]] = []
         self.logs: List[str] = []
         self.tooling_overview: str = ""
+        self.completion_signal: Optional[str] = None
         self._lock = asyncio.Lock()
 
     def set_agent(self, agent) -> None:
@@ -173,6 +177,7 @@ class WarmupManager:
             if self.status != "idle":
                 return
             self.status = "running"
+            self.completion_signal = None
 
         await self._await_model_hosts()
         # Delegate to the main suite runner which will reset status on completion
@@ -219,6 +224,7 @@ class WarmupManager:
             self.status = "running"
             self.results = []
             self.logs.append("Starting warmup test suite")
+            self.completion_signal = None
             asyncio.create_task(self._run_suite())
             return self.status_payload
 
@@ -229,6 +235,7 @@ class WarmupManager:
             "results": self.results,
             "logs": self.logs[-200:],  # keep payload reasonable
             "tooling_overview": self.tooling_overview,
+            "completion_signal": self.completion_signal,
         }
 
     async def _run_suite(self) -> None:
@@ -254,6 +261,7 @@ class WarmupManager:
             tool_names: Set[str] = set(self.agent.tools_by_name or {})
             tools_with_dedicated_tests = {
                 "tavily_search",
+                "generic_web_search",
                 "get_weather",
                 "get_rain_forecast",
                 "explain_image",
@@ -283,6 +291,14 @@ class WarmupManager:
                         f"{tavily_image}"
                     ),
                     "required_tools": {"tavily_search"},
+                },
+                {
+                    "name": "generic-web-search",
+                    "prompt": (
+                        "Use the generic_web_search tool for a general-purpose web query "
+                        "about NVIDIA's latest announcements. Include at least one source."
+                    ),
+                    "required_tools": {"generic_web_search"},
                 },
                 {
                     "name": "weather-batch",
@@ -356,6 +372,11 @@ class WarmupManager:
             summary_msg = "Warmup suite completed successfully" if all_success else "Warmup suite encountered failures"
             self.logs.append(summary_msg)
             logger.info({"message": summary_msg, "results": self.results})
+            if all_success:
+                self.completion_signal = COMPLETION_SIGNAL
+                self.logs.append(COMPLETION_SIGNAL)
+            else:
+                self.completion_signal = None
         except Exception as exc:  # noqa: BLE001
             self.status = "failed"
             error_msg = f"Warmup suite crashed: {exc}"

@@ -21,6 +21,7 @@ type WarmupPayload = {
   results: WarmupResult[];
   logs: string[];
   tooling_overview?: string;
+  completion_signal?: string;
 };
 
 async function fetchWarmupStatus(): Promise<WarmupPayload | null> {
@@ -47,6 +48,7 @@ export default function WarmupStatus() {
   const [results, setResults] = useState<WarmupResult[]>([]);
   const [logs, setLogs] = useState<string[]>([]);
   const [toolingOverview, setToolingOverview] = useState<string>("");
+  const [completionSignal, setCompletionSignal] = useState<string | undefined>(undefined);
   const pollTimer = useRef<NodeJS.Timeout | null>(null);
 
   const statusLabel = useMemo(() => {
@@ -76,6 +78,7 @@ export default function WarmupStatus() {
     setResults(payload.results || []);
     setLogs(payload.logs || []);
     setToolingOverview(payload.tooling_overview || "");
+    setCompletionSignal(payload.completion_signal);
 
     if (payload.status === "running" && !pollTimer.current) {
       pollTimer.current = setInterval(refreshStatus, 3000);
@@ -95,6 +98,7 @@ export default function WarmupStatus() {
       setResults(payload.results || []);
       setLogs(payload.logs || []);
       setToolingOverview(payload.tooling_overview || "");
+      setCompletionSignal(payload.completion_signal);
 
       if (payload.status === "idle" || payload.status === "failed") {
         await triggerWarmupRun();
@@ -141,6 +145,12 @@ export default function WarmupStatus() {
           {status === "running" ? "Running" : "Re-run tests"}
         </button>
       </div>
+
+      {completionSignal && status === "passed" && (
+        <div className={styles.completionSignal} role="status" aria-live="polite">
+          {completionSignal}
+        </div>
+      )}
 
       {toolingOverview && (
         <div className={styles.toolingBox}>
