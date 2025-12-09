@@ -662,6 +662,6 @@ class ChatAgent:
 
                     content = getattr(final_msg, "content", None)
                     if content:
-                        await token_q.put(content)
+                        await token_q.put({"type": "final", "content": content})
             finally:
                 await token_q.put(SENTINEL)

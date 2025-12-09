@@ -49,7 +49,7 @@ const STARTUP_MESSAGES = [
 const MESSAGE_DURATION = 5000;
 const FADE_DURATION = 600;
 const ESCAPE_BUTTON_DELAY = 30000;
-const COMPLETION_TRIGGER = "Ride, captain ride upon your mystery ship!";
+const COMPLETION_TRIGGER = "Warmup complete";
 
 export default function Home() {
   const [query, setQuery] = useState("");
