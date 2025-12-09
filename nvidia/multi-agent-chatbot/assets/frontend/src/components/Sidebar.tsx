@@ -27,6 +27,15 @@ interface ChatMetadata {
   name: string;
 }
 
+interface AdvancedSettings {
+  supervisorModel: string;
+  codeModel: string;
+  visionModel: string;
+  fluxEnabled: boolean;
+  fluxModel: string;
+  hfApiKey: string;
+}
+
 interface SidebarProps {
   showIngestion: boolean;
   setShowIngestion: (value: boolean) => void;
@@ -36,6 +45,8 @@ interface SidebarProps {
   activePane: 'chat' | 'testing';
   setActivePane: (pane: 'chat' | 'testing') => void;
 }
+
+const DEFAULT_FLUX_MODEL = "black-forest-labs/FLUX.1-dev-onnx/transformer.opt/fp4";
 
 
 export default function Sidebar({ 
@@ -64,6 +75,17 @@ export default function Sidebar({
   const [tavilyApiKey, setTavilyApiKey] = useState("");
   const [isSavingTavily, setIsSavingTavily] = useState(false);
   const [tavilyStatus, setTavilyStatus] = useState<string | null>(null);
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+  const [advancedStatus, setAdvancedStatus] = useState<string | null>(null);
+  const [isSavingAdvanced, setIsSavingAdvanced] = useState(false);
+  const [advancedSettings, setAdvancedSettings] = useState<AdvancedSettings>({
+    supervisorModel: "",
+    codeModel: "",
+    visionModel: "",
+    fluxEnabled: false,
+    fluxModel: DEFAULT_FLUX_MODEL,
+    hfApiKey: "",
+  });
 
   // Add ref for chat list
   const chatListRef = useRef<HTMLDivElement>(null);
@@ -90,6 +112,7 @@ export default function Sidebar({
           setSelectedSources(sources);
         }
 
+        await fetchModelSettings();
         await fetchTavilySettings();
 
 
@@ -111,10 +134,10 @@ export default function Sidebar({
     };
     
     loadInitialConfig();
-  }, []);
+  }, [expandedSections, fetchAvailableModels, fetchChats, fetchModelSettings, fetchSources, fetchTavilySettings]);
 
   // Fetch available models
-  const fetchAvailableModels = async () => {
+  const fetchAvailableModels = useCallback(async () => {
     try {
       setIsLoadingModels(true);
       const response = await backendFetch("/available_models");
@@ -136,7 +159,30 @@ export default function Sidebar({
     } finally {
       setIsLoadingModels(false);
     }
-  };
+  }, []);
+
+  const fetchModelSettings = useCallback(async () => {
+    try {
+      const response = await backendFetch("/model_settings");
+      if (!response?.ok) return;
+
+      const data = await response.json();
+      setAdvancedSettings({
+        supervisorModel: data.supervisor_model || "",
+        codeModel: data.code_model || "",
+        visionModel: data.vision_model || "",
+        fluxEnabled: Boolean(data.flux_enabled),
+        fluxModel: data.flux_model || DEFAULT_FLUX_MODEL,
+        hfApiKey: data.hf_api_key || "",
+      });
+
+      if (data.supervisor_model) {
+        setSelectedModel(data.supervisor_model);
+      }
+    } catch (error) {
+      console.error("Error fetching model settings:", error);
+    }
+  }, []);
 
   // Fetch available sources
   const fetchSources = useCallback(async () => {
@@ -502,7 +548,7 @@ export default function Sidebar({
     const newModel = event.target.value;
     const newModelLower = newModel.toLowerCase();
     setSelectedModel(newModel);
-    
+
     try {
       console.log("Updating selected model to:", newModel);
       
@@ -521,6 +567,50 @@ export default function Sidebar({
       console.error("Error updating selected model:", error);
       // Revert the local state if the update failed
       setSelectedModel(selectedModel);
+    }
+  };
+
+  const updateAdvancedField = (field: keyof AdvancedSettings, value: string | boolean) => {
+    setAdvancedSettings(prev => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const handleSaveAdvancedSettings = async (event?: React.FormEvent) => {
+    event?.preventDefault();
+    setIsSavingAdvanced(true);
+    setAdvancedStatus(null);
+
+    try {
+      const response = await backendFetch("/model_settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          supervisor_model: advancedSettings.supervisorModel.trim() || null,
+          code_model: advancedSettings.codeModel.trim() || null,
+          vision_model: advancedSettings.visionModel.trim() || null,
+          flux_enabled: advancedSettings.fluxEnabled,
+          flux_model: advancedSettings.fluxModel.trim() || DEFAULT_FLUX_MODEL,
+          hf_api_key: advancedSettings.hfApiKey.trim() || null,
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || "Failed to save advanced settings");
+      }
+
+      if (advancedSettings.supervisorModel.trim()) {
+        setSelectedModel(advancedSettings.supervisorModel.trim());
+      }
+
+      setAdvancedStatus("Saved advanced settings");
+    } catch (error) {
+      console.error("Error saving advanced settings:", error);
+      setAdvancedStatus("Unable to save advanced settings. Please try again.");
+    } finally {
+      setIsSavingAdvanced(false);
     }
   };
 
@@ -643,13 +733,28 @@ export default function Sidebar({
                     {isLoadingModels ? (
                       <option value="">Loading models...</option>
                     ) : (
-                      availableModels.map(model => (
-                        <option key={model.id} value={model.id}>
-                          {model.name}
-                        </option>
-                      ))
+                      <>
+                        {availableModels.map(model => (
+                          <option key={model.id} value={model.id}>
+                            {model.name}
+                          </option>
+                        ))}
+                        {!isLoadingModels && selectedModel && !availableModels.some(model => model.id === selectedModel) && (
+                          <option value={selectedModel}>{selectedModel}</option>
+                        )}
+                      </>
                     )}
                   </select>
+                </div>
+                <div className={styles.advancedActions}>
+                  <button
+                    type="button"
+                    className={styles.advancedButton}
+                    onClick={() => setShowAdvancedSettings(true)}
+                  >
+                    Advanced settings
+                  </button>
+                  <p className={styles.helpText}>Paste custom supervisor, coding, and VLM models.</p>
                 </div>
               </div>
             </div>
@@ -822,7 +927,7 @@ export default function Sidebar({
 
             {/* Chat Action Buttons at bottom */}
             <div className={styles.chatButtonsContainer}>
-              <button 
+              <button
                 className={styles.newChatButton}
                 onClick={handleNewChat}
               >
@@ -863,8 +968,112 @@ export default function Sidebar({
               </button>
             </div>
           </div>
+
+          {showAdvancedSettings && (
+            <>
+              <div className={styles.modalOverlay} onClick={() => setShowAdvancedSettings(false)} />
+              <div className={styles.modalWindow}>
+                <div className={styles.modalHeader}>
+                  <div>
+                    <div className={styles.modalTitle}>Advanced settings</div>
+                    <div className={styles.modalSubtitle}>Override supervisor, code, and vision models or enable FLUX.</div>
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.closeSidebarButton}
+                    onClick={() => setShowAdvancedSettings(false)}
+                  >
+                    ×
+                  </button>
+                </div>
+                <form className={styles.modalBody} onSubmit={handleSaveAdvancedSettings}>
+                  <div className={styles.modalGrid}>
+                    <label className={styles.modalField}>
+                      <span>Supervisor model</span>
+                      <input
+                        type="text"
+                        value={advancedSettings.supervisorModel}
+                        onChange={(e) => updateAdvancedField('supervisorModel', e.target.value)}
+                        placeholder="e.g., meta/llama3"
+                      />
+                    </label>
+                    <label className={styles.modalField}>
+                      <span>Code model</span>
+                      <input
+                        type="text"
+                        value={advancedSettings.codeModel}
+                        onChange={(e) => updateAdvancedField('codeModel', e.target.value)}
+                        placeholder="e.g., qwen2.5-coder"
+                      />
+                    </label>
+                    <label className={styles.modalField}>
+                      <span>Vision model</span>
+                      <input
+                        type="text"
+                        value={advancedSettings.visionModel}
+                        onChange={(e) => updateAdvancedField('visionModel', e.target.value)}
+                        placeholder="e.g., ministral-3:14b"
+                      />
+                    </label>
+                  </div>
+
+                  <div className={styles.modalGrid}>
+                    <label className={styles.modalFieldCheckbox}>
+                      <input
+                        type="checkbox"
+                        checked={advancedSettings.fluxEnabled}
+                        onChange={(e) => updateAdvancedField('fluxEnabled', e.target.checked)}
+                      />
+                      <div>
+                        <span>Enable FLUX image generation</span>
+                        <p className={styles.helpText}>Use the fp4 pipeline from Hugging Face for image generation.</p>
+                      </div>
+                    </label>
+                    <label className={styles.modalField}>
+                      <span>FLUX model identifier</span>
+                      <input
+                        type="text"
+                        value={advancedSettings.fluxModel}
+                        onChange={(e) => updateAdvancedField('fluxModel', e.target.value)}
+                        placeholder={DEFAULT_FLUX_MODEL}
+                      />
+                    </label>
+                    <label className={styles.modalField}>
+                      <span>Hugging Face API key</span>
+                      <input
+                        type="password"
+                        value={advancedSettings.hfApiKey}
+                        onChange={(e) => updateAdvancedField('hfApiKey', e.target.value)}
+                        placeholder="hf_..."
+                      />
+                    </label>
+                  </div>
+
+                  <div className={styles.modalFooter}>
+                    <div className={styles.modalStatus}>{advancedStatus}</div>
+                    <div className={styles.modalButtons}>
+                      <button
+                        type="button"
+                        className={styles.secondaryButton}
+                        onClick={() => setShowAdvancedSettings(false)}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className={styles.primaryButton}
+                        disabled={isSavingAdvanced}
+                      >
+                        {isSavingAdvanced ? "Saving..." : "Save"}
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              </div>
+            </>
+          )}
         </>
       )}
     </>
   );
-} 
+}

@@ -17,6 +17,7 @@
 
 import asyncio
 import os
+from pathlib import Path
 from typing import Type
 from pydantic import BaseModel, Field
 
@@ -25,8 +26,19 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from mcp.server.fastmcp import FastMCP
 from openai import AsyncOpenAI
 
+import sys
+sys.path.append(str(Path(__file__).resolve().parents[2]))
+from config import ConfigManager  # noqa: E402
+
 mcp = FastMCP("Code Generation")
-model_name = os.getenv("CODE_MODEL", "qwen3-coder:30b")
+
+CONFIG_PATH = Path(__file__).resolve().parents[2] / "config.json"
+config_manager = ConfigManager(str(CONFIG_PATH))
+
+
+def _get_model_name() -> str:
+    model = config_manager.get_code_model()
+    return model or os.getenv("CODE_MODEL", "qwen3-coder:30b")
 
 
 @mcp.tool()
@@ -57,7 +69,7 @@ async def write_code(query: str, programming_language: str):
     ]
     
     response = await model_client.chat.completions.create(
-        model=model_name,
+        model=_get_model_name(),
         messages=messages,
         temperature=0.1,
     )

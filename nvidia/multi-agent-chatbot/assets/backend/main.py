@@ -25,6 +25,7 @@ This module provides the main HTTP API endpoints and WebSocket connections for:
 """
 
 import asyncio
+import contextlib
 import json
 import os
 import uuid
@@ -37,7 +38,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from agent import ChatAgent
 from config import ConfigManager
 from logger import logger, log_request, log_response, log_error
-from models import ChatIdRequest, ChatRenameRequest, SelectedModelRequest, TavilySettingsRequest
+from models import ChatIdRequest, ChatRenameRequest, ModelSettingsRequest, SelectedModelRequest, TavilySettingsRequest
 from postgres_storage import PostgreSQLConversationStorage
 from utils import process_and_ingest_files_background
 from utils_media import (
@@ -70,7 +71,7 @@ vector_store._initialize_store()
 
 agent: ChatAgent | None = None
 indexing_tasks: Dict[str, str] = {}
-warmup_manager = WarmupManager()
+warmup_manager = WarmupManager(config_manager)
 
 
 @asynccontextmanager
@@ -145,86 +146,117 @@ async def trigger_warmup():
 @app.websocket("/ws/chat/{chat_id}")
 async def websocket_endpoint(websocket: WebSocket, chat_id: str):
     """WebSocket endpoint for real-time chat communication.
-    
+
     Args:
         websocket: WebSocket connection
         chat_id: Unique chat identifier
     """
     logger.debug(f"WebSocket connection attempt for chat_id: {chat_id}")
+
+    async def stream_query(new_message: str, image_id: str | None) -> None:
+        """Run a query and stream events back to the client."""
+        image_data = None
+        if image_id:
+            image_data = await postgres_storage.get_image(image_id, chat_id)
+            logger.debug(
+                f"Retrieved image data for image_id: {image_id}, data length: {len(image_data) if image_data else 0}"
+            )
+
+            if not image_data:
+                warning = (
+                    "Uploaded media is not available for this chat. "
+                    "Please re-upload the attachment in the current conversation."
+                )
+                logger.warning(
+                    "Missing media for chat while processing message",
+                    extra={"chat_id": chat_id, "image_id": image_id},
+                )
+                await websocket.send_json({"type": "error", "content": warning})
+                return
+
+        remote_media = collect_remote_media_from_text(new_message or "")
+        merged_media = merge_media_payloads(image_data, remote_media)
+
+        try:
+            async for event in agent.query(query_text=new_message, chat_id=chat_id, image_data=merged_media):
+                await websocket.send_json(event)
+        except asyncio.CancelledError:
+            logger.debug(f"Streaming cancelled for chat {chat_id}")
+            raise
+        except WebSocketDisconnect:
+            logger.debug(f"Client disconnected during streaming for chat {chat_id}")
+            raise
+        except Exception as query_error:
+            logger.error(f"Error in agent.query: {str(query_error)}", exc_info=True)
+            await websocket.send_json({"type": "error", "content": f"Error processing request: {str(query_error)}"})
+        finally:
+            final_messages = await postgres_storage.get_messages(chat_id)
+            final_history = [postgres_storage._message_to_dict(msg) for i, msg in enumerate(final_messages) if i != 0]
+            await websocket.send_json({"type": "history", "messages": final_history})
+
+    active_task: asyncio.Task | None = None
+
     try:
         await websocket.accept()
         logger.debug(f"WebSocket connection accepted for chat_id: {chat_id}")
-        
+
         history_messages = await postgres_storage.get_messages(chat_id)
         history = [postgres_storage._message_to_dict(msg) for i, msg in enumerate(history_messages) if i != 0]
         await websocket.send_json({"type": "history", "messages": history})
-        
+
+        receive_task = asyncio.create_task(websocket.receive_text())
+
         while True:
-            try:
-                data = await websocket.receive_text()
-            except WebSocketDisconnect:
-                logger.debug(f"Client disconnected while waiting for message in chat {chat_id}")
-                break
+            wait_tasks = [receive_task]
+            if active_task:
+                wait_tasks.append(active_task)
 
-            client_message = json.loads(data)
-            new_message = client_message.get("message")
-            image_id = client_message.get("image_id") or client_message.get("media_id")
+            done, _ = await asyncio.wait(wait_tasks, return_when=asyncio.FIRST_COMPLETED)
 
-            image_data = None
-            if image_id:
-                image_data = await postgres_storage.get_image(image_id, chat_id)
-                logger.debug(
-                    f"Retrieved image data for image_id: {image_id}, data length: {len(image_data) if image_data else 0}"
-                )
-
-                if not image_data:
-                    warning = (
-                        "Uploaded media is not available for this chat. "
-                        "Please re-upload the attachment in the current conversation."
-                    )
-                    logger.warning(
-                        "Missing media for chat while processing message",
-                        extra={"chat_id": chat_id, "image_id": image_id},
-                    )
-                    try:
-                        await websocket.send_json({"type": "error", "content": warning})
-                    except WebSocketDisconnect:
-                        logger.debug(
-                            "Client disconnected while sending missing-media warning for chat %s", chat_id
-                        )
-                        break
-
-                    continue
-
-            remote_media = collect_remote_media_from_text(new_message or "")
-            merged_media = merge_media_payloads(image_data, remote_media)
-
-            try:
-                async for event in agent.query(query_text=new_message, chat_id=chat_id, image_data=merged_media):
-                    await websocket.send_json(event)
-            except WebSocketDisconnect:
-                logger.debug(f"Client disconnected during streaming for chat {chat_id}")
-                break
-            except Exception as query_error:
-                logger.error(f"Error in agent.query: {str(query_error)}", exc_info=True)
+            if receive_task in done:
                 try:
-                    await websocket.send_json({"type": "error", "content": f"Error processing request: {str(query_error)}"})
+                    data = receive_task.result()
                 except WebSocketDisconnect:
-                    logger.debug(f"Client disconnected while sending error for chat {chat_id}")
+                    logger.debug(f"Client disconnected while waiting for message in chat {chat_id}")
                     break
 
-            final_messages = await postgres_storage.get_messages(chat_id)
-            final_history = [postgres_storage._message_to_dict(msg) for i, msg in enumerate(final_messages) if i != 0]
-            try:
-                await websocket.send_json({"type": "history", "messages": final_history})
-            except WebSocketDisconnect:
-                logger.debug(f"Client disconnected while sending history for chat {chat_id}")
-                break
-            
+                client_message = json.loads(data)
+                new_message = client_message.get("message")
+                image_id = client_message.get("image_id") or client_message.get("media_id")
+
+                # Handle explicit stop requests to cancel in-flight generations
+                if client_message.get("type") == "stop":
+                    if active_task and not active_task.done():
+                        active_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await active_task
+                    await websocket.send_json({"type": "stopped"})
+                    receive_task = asyncio.create_task(websocket.receive_text())
+                    continue
+
+                # Cancel any active task before starting a new one
+                if active_task and not active_task.done():
+                    active_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await active_task
+
+                active_task = asyncio.create_task(stream_query(new_message, image_id))
+                receive_task = asyncio.create_task(websocket.receive_text())
+
+            if active_task and active_task in done:
+                with contextlib.suppress(asyncio.CancelledError, WebSocketDisconnect):
+                    active_task.result()
+                active_task = None
+
     except WebSocketDisconnect:
         logger.debug(f"Client disconnected from chat {chat_id}")
     except Exception as e:
         logger.error(f"WebSocket error for chat {chat_id}: {str(e)}", exc_info=True)
+    finally:
+        if active_task and not active_task.done():
+            active_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await active_task
 
 
 async def _store_media(upload: UploadFile, chat_id: str) -> str:
@@ -381,6 +413,23 @@ async def update_selected_model(request: SelectedModelRequest):
         return {"status": "success", "message": "Selected model updated successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating selected model: {str(e)}")
+
+
+@app.get("/model_settings")
+async def get_model_settings():
+    try:
+        return config_manager.get_model_settings()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting model settings: {str(e)}")
+
+
+@app.post("/model_settings")
+async def update_model_settings(request: ModelSettingsRequest):
+    try:
+        config_manager.update_model_settings(**request.model_dump())
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating model settings: {str(e)}")
 
 
 @app.get("/tavily")

@@ -26,7 +26,7 @@ class WarmupManager:
     to the existing :class:`ChatAgent` via its public ``query`` method.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, config_manager=None) -> None:
         self.agent = None
         self.status: str = "idle"
         self.results: List[Dict[str, Any]] = []
@@ -34,6 +34,7 @@ class WarmupManager:
         self.tooling_overview: str = ""
         self.completion_signal: Optional[str] = None
         self._lock = asyncio.Lock()
+        self.config_manager = config_manager
 
     def set_agent(self, agent) -> None:
         """Attach the ChatAgent instance once it is created."""
@@ -63,23 +64,47 @@ class WarmupManager:
         """Gather all models that should be running for the stack with their endpoints."""
 
         base_url = os.getenv("LLM_API_BASE_URL", "http://localhost:11434/v1").removesuffix("/v1")
-        configured_models: Set[tuple[str, str]] = {
-            (model.strip(), base_url)
-            for model in os.getenv("MODELS", "").split(",")
-            if model.strip()
-        }
+        configured_models: Set[tuple[str, str]] = set()
 
-        vision_model = os.getenv("VISION_MODEL", "ministral-3:14b")
-        vision_base = os.getenv(
-            "VISION_LLM_API_BASE_URL",
-            os.getenv("LLM_API_BASE_URL", "http://localhost:11434/v1"),
-        ).removesuffix("/v1")
-        code_model = os.getenv("CODE_MODEL", "qwen3-coder:30b")
+        if self.config_manager:
+            config = self.config_manager.get_model_settings()
+            supervisor = config.get("supervisor_model")
+            code_model = config.get("code_model")
+            vision_model = config.get("vision_model")
 
-        configured_models.update({
-            (vision_model, vision_base),
-            (code_model, base_url),
-        })
+            if supervisor:
+                configured_models.add((supervisor, base_url))
+            if code_model:
+                configured_models.add((code_model, base_url))
+            if vision_model:
+                vision_base = os.getenv(
+                    "VISION_LLM_API_BASE_URL",
+                    os.getenv("LLM_API_BASE_URL", "http://localhost:11434/v1"),
+                ).removesuffix("/v1")
+                configured_models.add((vision_model, vision_base))
+
+            for model in self.config_manager.get_available_models():
+                if model:
+                    configured_models.add((model, base_url))
+        else:
+            configured_models = {
+                (model.strip(), base_url)
+                for model in os.getenv("MODELS", "").split(",")
+                if model.strip()
+            }
+
+            vision_model = os.getenv("VISION_MODEL", "ministral-3:14b")
+            vision_base = os.getenv(
+                "VISION_LLM_API_BASE_URL",
+                os.getenv("LLM_API_BASE_URL", "http://localhost:11434/v1"),
+            ).removesuffix("/v1")
+            code_model = os.getenv("CODE_MODEL", "qwen3-coder:30b")
+
+            configured_models.update({
+                (vision_model, vision_base),
+                (code_model, base_url),
+            })
+
         return {(model, url) for model, url in configured_models if model}
 
     async def _ensure_model_ready(
