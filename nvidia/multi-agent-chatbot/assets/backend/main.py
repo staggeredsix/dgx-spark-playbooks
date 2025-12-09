@@ -34,11 +34,12 @@ from typing import List, Optional, Dict
 
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from huggingface_hub import snapshot_download
 
 from agent import ChatAgent
 from config import ConfigManager
 from logger import logger, log_request, log_response, log_error
-from models import ChatIdRequest, ChatRenameRequest, ModelSettingsRequest, SelectedModelRequest, TavilySettingsRequest
+from models import ChatIdRequest, ChatRenameRequest, FluxDownloadRequest, ModelSettingsRequest, SelectedModelRequest, TavilySettingsRequest
 from postgres_storage import PostgreSQLConversationStorage
 from utils import process_and_ingest_files_background
 from utils_media import (
@@ -430,6 +431,38 @@ async def update_model_settings(request: ModelSettingsRequest):
         return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating model settings: {str(e)}")
+
+
+@app.post("/download/flux")
+async def download_flux_model(request: FluxDownloadRequest):
+    """Download the configured FLUX model into the local Hugging Face cache."""
+
+    model_id = request.model or config_manager.get_flux_model()
+    hf_token = (
+        request.hf_api_key
+        or config_manager.get_hf_api_key()
+        or os.getenv("HUGGINGFACEHUB_API_TOKEN")
+        or os.getenv("HF_TOKEN")
+    )
+
+    if not hf_token:
+        raise HTTPException(status_code=400, detail="Hugging Face token is required to download the FLUX model.")
+
+    cache_dir = os.getenv("FLUX_MODEL_DIR") or os.getenv("HUGGINGFACE_HUB_CACHE")
+
+    try:
+        path = await asyncio.to_thread(
+            snapshot_download,
+            repo_id=model_id,
+            repo_type="model",
+            token=hf_token,
+            local_dir=cache_dir,
+            local_dir_use_symlinks=False,
+        )
+        return {"status": "success", "model": model_id, "path": path}
+    except Exception as e:
+        logger.error(f"Failed to download FLUX model {model_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to download FLUX model: {str(e)}")
 
 
 @app.get("/tavily")

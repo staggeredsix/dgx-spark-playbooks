@@ -190,6 +190,18 @@ class ConfigManager:
     def get_vision_model(self) -> Optional[str]:
         self.config = self.read_config()
         return self.config.vision_model
+
+    def is_flux_enabled(self) -> bool:
+        self.config = self.read_config()
+        return bool(self.config.flux_enabled)
+
+    def get_flux_model(self) -> str:
+        self.config = self.read_config()
+        return self.config.flux_model or self.default_flux_model
+
+    def get_hf_api_key(self) -> Optional[str]:
+        self.config = self.read_config()
+        return self.config.hf_api_key
     
     def get_current_chat_id(self) -> str:
         """Return the current chat id."""
