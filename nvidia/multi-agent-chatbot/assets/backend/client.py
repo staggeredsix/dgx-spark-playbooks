@@ -61,6 +61,11 @@ class MCPClient:
                 "command": "python",
                 "args": ["tools/mcp_servers/tavily_search.py"],
                 "transport": "stdio",
+            },
+            "flux-image-server": {
+                "command": "python",
+                "args": ["tools/mcp_servers/flux_image_generation.py"],
+                "transport": "stdio",
             }
         }
         self.mcp_client: MultiServerMCPClient | None = None

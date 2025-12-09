@@ -55,3 +55,8 @@ class ModelSettingsRequest(BaseModel):
     flux_enabled: Optional[bool] = None
     flux_model: Optional[str] = None
     hf_api_key: Optional[str] = None
+
+
+class FluxDownloadRequest(BaseModel):
+    model: Optional[str] = None
+    hf_api_key: Optional[str] = None

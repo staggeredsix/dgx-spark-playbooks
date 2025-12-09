@@ -170,6 +170,7 @@ interface QuerySectionProps {
 interface Message {
   type: "HumanMessage" | "AssistantMessage" | "ToolMessage";
   content: string;
+  isImage?: boolean;
 }
 
 
@@ -215,7 +216,8 @@ export default function QuerySection({
                 : msg?.type === "ToolMessage"
                 ? "ToolMessage"
                 : "AssistantMessage",
-            content: typeof msg?.content === "string" ? msg.content : String(msg?.content ?? "")
+            content: typeof msg?.content === "string" ? msg.content : String(msg?.content ?? ""),
+            isImage: Boolean(msg?.isImage),
           }))
         : [];
     } catch {
@@ -295,12 +297,24 @@ export default function QuerySection({
                 const messages = normalizeMessages(prev);
                 const last = messages[messages.length - 1];
 
-                if (last && last.type === "AssistantMessage") {
+                if (last && last.type === "AssistantMessage" && !last.isImage) {
                   last.content = String(last.content || "") + text;
                 } else {
                   messages.push({ type: "AssistantMessage", content: text });
                 }
 
+                return JSON.stringify(messages);
+              });
+              break;
+            }
+            case "image": {
+              const imageMarkdown = msg.content || text;
+              if (!imageMarkdown) break;
+
+              hasAssistantContent.current = true;
+              setResponse(prev => {
+                const messages = normalizeMessages(prev);
+                messages.push({ type: "AssistantMessage", content: imageMarkdown, isImage: true });
                 return JSON.stringify(messages);
               });
               break;

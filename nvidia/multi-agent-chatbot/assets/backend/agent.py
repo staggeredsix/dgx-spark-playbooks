@@ -253,6 +253,13 @@ class ChatAgent:
                     state["process_image_used"] = True
                 else:
                     tool_result = await self.tools_by_name[tool_call["name"]].ainvoke(tool_call["args"])
+                if isinstance(tool_result, dict) and tool_result.get("image_markdown"):
+                    await self.stream_callback({
+                        "type": "image",
+                        "content": tool_result.get("image_markdown"),
+                        "raw": tool_result.get("image_base64"),
+                    })
+
                 if "code" in tool_call["name"]:
                     content = str(tool_result)
                 elif isinstance(tool_result, str):

@@ -78,6 +78,8 @@ export default function Sidebar({
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const [advancedStatus, setAdvancedStatus] = useState<string | null>(null);
   const [isSavingAdvanced, setIsSavingAdvanced] = useState(false);
+  const [fluxDownloadStatus, setFluxDownloadStatus] = useState<string | null>(null);
+  const [isDownloadingFlux, setIsDownloadingFlux] = useState(false);
   const [advancedSettings, setAdvancedSettings] = useState<AdvancedSettings>({
     supervisorModel: "",
     codeModel: "",
@@ -619,11 +621,44 @@ export default function Sidebar({
       }
 
       setAdvancedStatus("Saved advanced settings");
+      setShowAdvancedSettings(false);
     } catch (error) {
       console.error("Error saving advanced settings:", error);
       setAdvancedStatus("Unable to save advanced settings. Please try again.");
     } finally {
       setIsSavingAdvanced(false);
+    }
+  };
+
+  const handleDownloadFluxModel = async () => {
+    setIsDownloadingFlux(true);
+    setFluxDownloadStatus(null);
+
+    try {
+      const body = {
+        model: advancedSettings.fluxModel.trim() || DEFAULT_FLUX_MODEL,
+        hf_api_key: advancedSettings.hfApiKey.trim() || undefined,
+      };
+
+      const response = await backendFetch("/download/flux", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || "Failed to download FLUX model");
+      }
+
+      const data = await response.json();
+      const targetPath = data?.path || "the local Hugging Face cache";
+      setFluxDownloadStatus(`Downloaded ${data?.model || body.model} to ${targetPath}`);
+    } catch (error) {
+      console.error("Error downloading FLUX model:", error);
+      setFluxDownloadStatus((error as Error).message || "Unable to download FLUX model");
+    } finally {
+      setIsDownloadingFlux(false);
     }
   };
 
@@ -971,20 +1006,13 @@ export default function Sidebar({
 
           {showAdvancedSettings && (
             <>
-              <div className={styles.modalOverlay} onClick={() => setShowAdvancedSettings(false)} />
+              <div className={styles.modalOverlay} />
               <div className={styles.modalWindow}>
                 <div className={styles.modalHeader}>
                   <div>
                     <div className={styles.modalTitle}>Advanced settings</div>
                     <div className={styles.modalSubtitle}>Override supervisor, code, and vision models or enable FLUX.</div>
                   </div>
-                  <button
-                    type="button"
-                    className={styles.closeSidebarButton}
-                    onClick={() => setShowAdvancedSettings(false)}
-                  >
-                    ×
-                  </button>
                 </div>
                 <form className={styles.modalBody} onSubmit={handleSaveAdvancedSettings}>
                   <div className={styles.modalGrid}>
@@ -1047,6 +1075,23 @@ export default function Sidebar({
                         placeholder="hf_..."
                       />
                     </label>
+                    <div className={styles.modalField}>
+                      <span>Download FLUX model</span>
+                      <p className={styles.helpText}>
+                        Pre-download the configured FLUX model into the Hugging Face cache for offline image generation.
+                      </p>
+                      <button
+                        type="button"
+                        className={styles.secondaryButton}
+                        onClick={handleDownloadFluxModel}
+                        disabled={isDownloadingFlux}
+                      >
+                        {isDownloadingFlux ? "Downloading..." : "Download model"}
+                      </button>
+                      {fluxDownloadStatus && (
+                        <div className={styles.modalStatus}>{fluxDownloadStatus}</div>
+                      )}
+                    </div>
                   </div>
 
                   <div className={styles.modalFooter}>
