@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 import uuid
 from typing import Any, Dict, Iterable, List, Optional, Set
 
@@ -139,6 +140,43 @@ class WarmupManager:
             )
         else:
             self.logs.append("All configured models were warmed successfully")
+
+    async def _await_model_hosts(self, timeout_seconds: int = 180, poll_interval: int = 5) -> None:
+        """Block until the configured model hosts respond to a lightweight request."""
+
+        targets = self._collect_models_to_warm()
+        if not targets:
+            return
+
+        start_time = time.monotonic()
+        async with httpx.AsyncClient(timeout=5) as client:
+            while time.monotonic() - start_time < timeout_seconds:
+                try:
+                    checks = await asyncio.gather(
+                        *(client.get(f"{base_url}/api/tags") for _, base_url in targets),
+                        return_exceptions=True,
+                    )
+                    if all(isinstance(resp, httpx.Response) and resp.status_code < 500 for resp in checks):
+                        self.logs.append("Model hosts are responding; starting warmup suite")
+                        return
+                except Exception:
+                    pass
+
+                await asyncio.sleep(poll_interval)
+
+        self.logs.append("Timed out waiting for model hosts; proceeding with warmup checks")
+
+    async def start_when_ready(self) -> None:
+        """Wait for LLM hosts to come online, then trigger the warmup suite once."""
+
+        async with self._lock:
+            if self.status != "idle":
+                return
+            self.status = "running"
+
+        await self._await_model_hosts()
+        # Delegate to the main suite runner which will reset status on completion
+        await self._run_suite()
 
     @staticmethod
     def _response_indicates_vlm_failure(body: str) -> bool:
