@@ -71,6 +71,8 @@ chmod +x model_download.sh
 ./model_download.sh
 ```
 
+> **FLUX image generation model**: If you opt in to the FLUX image pipeline, run `scripts/download_flux_fp4.sh` from this directory. By default it writes the fp4 weights to `assets/flux-fp4` (or a custom path you pass as the first argument), which matches the backend default download location.
+
 #### 4. Start the docker containers for the application
 This step starts the Ollama runtime, Qdrant, the backend API server, and the frontend UI. This step can take 10 to 20 minutes depending on network speed.
 ```bash
