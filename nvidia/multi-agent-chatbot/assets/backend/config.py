@@ -224,7 +224,11 @@ class ConfigManager:
     
     def updated_selected_model(self, new_model: str) -> None:
         """Update the selected model in the config."""
-        self.config = self.read_config().model_copy(update={"selected_model": new_model})
+        config = self.read_config()
+        known_models = set(config.models or [])
+        known_models.add(new_model)
+
+        self.config = config.model_copy(update={"selected_model": new_model, "models": list(known_models)})
         logger.debug(f"Updated selected model to: {new_model}")
         self.write_config(self.config)
     

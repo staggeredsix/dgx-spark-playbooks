@@ -41,6 +41,7 @@ from config import ConfigManager
 from logger import logger, log_request, log_response, log_error
 from models import ChatIdRequest, ChatRenameRequest, FluxDownloadRequest, ModelSettingsRequest, SelectedModelRequest, TavilySettingsRequest
 from postgres_storage import PostgreSQLConversationStorage
+from model_management import ensure_model_available_async
 from utils import process_and_ingest_files_background
 from utils_media import (
     collect_remote_media_from_text,
@@ -409,8 +410,11 @@ async def update_selected_model(request: SelectedModelRequest):
         request: Model selection request with model name
     """
     try:
+        await ensure_model_available_async(request.model)
         logger.debug(f"Updating selected model to: {request.model}")
         config_manager.updated_selected_model(request.model)
+        if agent:
+            agent.set_current_model(request.model)
         return {"status": "success", "message": "Selected model updated successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating selected model: {str(e)}")
@@ -427,7 +431,11 @@ async def get_model_settings():
 @app.post("/model_settings")
 async def update_model_settings(request: ModelSettingsRequest):
     try:
+        if request.supervisor_model:
+            await ensure_model_available_async(request.supervisor_model)
         config_manager.update_model_settings(**request.model_dump())
+        if request.supervisor_model and agent:
+            agent.set_current_model(request.supervisor_model)
         return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating model settings: {str(e)}")

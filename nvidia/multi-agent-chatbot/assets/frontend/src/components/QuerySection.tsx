@@ -308,7 +308,8 @@ export default function QuerySection({
               break;
             }
             case "image": {
-              const imageMarkdown = msg.content || text;
+              const rawImage = typeof msg.raw === "string" ? msg.raw : "";
+              const imageMarkdown = rawImage ? `![Generated image](${rawImage})` : msg.content || text;
               if (!imageMarkdown) break;
 
               hasAssistantContent.current = true;
@@ -610,6 +611,37 @@ export default function QuerySection({
   const parseMessages = (response: string): Message[] =>
     normalizeMessages(response).filter((msg) => msg.type !== "ToolMessage");
 
+  const markdownComponents = {
+    code({ inline, className, children, ...props }: { inline?: boolean; className?: string; children?: React.ReactNode }) {
+      const match = /language-(\w+)/.exec(className || "");
+      const code = String(children ?? "").replace(/\n$/, "");
+
+      if (inline || !match) {
+        return (
+          <code className={className} {...props}>
+            {code}
+          </code>
+        );
+      }
+      return (
+        <CodeBlockWithCopy code={code} language={match[1]} />
+      );
+    },
+    img({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) {
+      return (
+        <img
+          src={src || ""}
+          alt={alt || "Generated image"}
+          loading="lazy"
+          onError={(event) => {
+            event.currentTarget.onerror = null;
+            event.currentTarget.alt = "Unable to load image";
+          }}
+          {...props}
+        />
+      );
+    },
+  };
 
   return (
     <div className={styles.chatContainer}>
@@ -645,23 +677,7 @@ export default function QuerySection({
               <div className={styles.markdown}>
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
-                  components={{
-                    code({ inline, className, children, ...props }) {
-                      const match = /language-(\w+)/.exec(className || "");
-                      const code = String(children ?? "").replace(/\n$/, "");
-
-                      if (inline || !match) {
-                        return (
-                          <code className={className} {...props}>
-                            {code}
-                          </code>
-                        );
-                      }
-                      return (
-                        <CodeBlockWithCopy code={code} language={match[1]} />
-                      );
-                    },
-                  }}
+                  components={markdownComponents}
                 >
                   {message.content}
                 </ReactMarkdown>
