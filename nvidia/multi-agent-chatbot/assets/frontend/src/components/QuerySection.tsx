@@ -16,7 +16,7 @@
 */
 import type React from "react";
 import { useRef, useEffect, useState, useCallback } from "react";
-import { backendFetch, buildBackendUrl, resolveBackendTarget } from "@/utils/backend";
+import { backendFetch, buildBackendUrl, buildWebSocketUrl } from "@/utils/backend";
 import styles from "@/styles/QuerySection.module.css";
 import ReactMarkdown from 'react-markdown'; // NEW
 import remarkGfm from 'remark-gfm'; // NEW
@@ -257,10 +257,8 @@ export default function QuerySection({
           wsRef.current.close();
         }
 
-        const { protocol, host, port } = resolveBackendTarget();
-        const isPageSecure = typeof window !== "undefined" && window.location.protocol === "https:";
-        const wsProtocol = isPageSecure || protocol === "https" || protocol === "wss" ? "wss" : "ws";
-        const ws = new WebSocket(`${wsProtocol}://${host}:${port}/ws/chat/${currentChatId}`);
+        const wsUrl = buildWebSocketUrl(`/ws/chat/${currentChatId}`);
+        const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
 
         onConnectionStatusChange?.(false);
@@ -366,7 +364,7 @@ export default function QuerySection({
         wsRef.current.close();
       }
     };
-  }, [currentChatId, resolveBackendTarget]);
+  }, [currentChatId]);
 
   useEffect(() => {
     const messages = normalizeMessages(response);
