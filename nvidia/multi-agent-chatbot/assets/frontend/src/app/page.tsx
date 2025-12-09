@@ -22,6 +22,17 @@ import Sidebar from '@/components/Sidebar';
 import WarmupStatus from '@/components/WarmupStatus';
 import styles from '@/styles/Home.module.css';
 
+const STARTUP_MESSAGES = [
+  "Configuring sand to think",
+  "The sand is starting to think",
+  "Wrangling networks so they don't want to make humans into batteries",
+  "The AI seems to be cooperating",
+  "They pinkie-swear  they won't eat your brain. Pipelines ready."
+];
+
+const MESSAGE_DURATION = 5000;
+const FADE_DURATION = 600;
+
 export default function Home() {
   const [query, setQuery] = useState("");
   const [response, setResponse] = useState("[]");
@@ -35,6 +46,9 @@ export default function Home() {
   const [activePane, setActivePane] = useState<'chat' | 'testing'>('chat');
   const [hasConnected, setHasConnected] = useState(false);
   const [ellipsis, setEllipsis] = useState('.');
+  const [loadingMessages, setLoadingMessages] = useState<string[]>([]);
+  const [currentLoadingMessage, setCurrentLoadingMessage] = useState(0);
+  const [isFadingMessage, setIsFadingMessage] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -50,6 +64,33 @@ export default function Home() {
 
     return () => clearInterval(interval);
   }, [hasConnected]);
+
+  useEffect(() => {
+    const [first, ...rest] = STARTUP_MESSAGES;
+    const shuffledRest = rest
+      .map(message => ({ message, sort: Math.random() }))
+      .sort((a, b) => a.sort - b.sort)
+      .map(({ message }) => message);
+
+    setLoadingMessages([first, ...shuffledRest]);
+    setCurrentLoadingMessage(0);
+  }, []);
+
+  useEffect(() => {
+    if (hasConnected || loadingMessages.length === 0) return;
+
+    setIsFadingMessage(false);
+
+    const fadeTimeout = setTimeout(() => setIsFadingMessage(true), MESSAGE_DURATION - FADE_DURATION);
+    const nextMessageTimeout = setTimeout(() => {
+      setCurrentLoadingMessage(prev => (prev + 1) % loadingMessages.length);
+    }, MESSAGE_DURATION);
+
+    return () => {
+      clearTimeout(fadeTimeout);
+      clearTimeout(nextMessageTimeout);
+    };
+  }, [currentLoadingMessage, hasConnected, loadingMessages]);
 
   // Load initial chat ID
   useEffect(() => {
@@ -154,7 +195,13 @@ export default function Home() {
       {!hasConnected && (
         <div className={styles.startupOverlay}>
           <div className={styles.startupCard}>
-            <div className={styles.startupTitle}>Configuring sand to think</div>
+            <div
+              className={`${styles.startupTitle} ${
+                isFadingMessage ? styles.fadeOut : styles.fadeIn
+              }`}
+            >
+              {loadingMessages[currentLoadingMessage] ?? STARTUP_MESSAGES[0]}
+            </div>
             <div className={styles.startupEllipsis}>{ellipsis}</div>
           </div>
         </div>
