@@ -92,50 +92,6 @@ export default function Sidebar({
   const sidebarRef = useRef<HTMLDivElement>(null);
   const toggleButtonRef = useRef<HTMLButtonElement>(null);
 
-  // Load initial configuration
-  useEffect(() => {
-    const loadInitialConfig = async () => {
-      try {
-        setIsLoading(true);
-        
-        // Get selected model
-        const modelResponse = await backendFetch("/selected_model");
-        if (modelResponse.ok) {
-          const { model } = await modelResponse.json();
-          setSelectedModel(model);
-        }
-
-        // Get selected sources
-        const sourcesResponse = await backendFetch("/selected_sources");
-        if (sourcesResponse.ok) {
-          const { sources } = await sourcesResponse.json();
-          setSelectedSources(sources);
-        }
-
-        await fetchModelSettings();
-        await fetchTavilySettings();
-
-
-        // Get available models
-        await fetchAvailableModels();
-
-        // Get sources
-        await fetchSources();
-        
-        // Get chats if history section is expanded (which it is by default)
-        if (expandedSections.has('history')) {
-          await fetchChats();
-        }
-      } catch (error) {
-        console.error("Error loading initial config:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
-    loadInitialConfig();
-  }, [expandedSections, fetchAvailableModels, fetchChats, fetchModelSettings, fetchSources, fetchTavilySettings]);
-
   // Fetch available models
   const fetchAvailableModels = useCallback(async () => {
     try {
@@ -261,6 +217,50 @@ export default function Sidebar({
       setIsLoadingChats(false);
     }
   }, [fetchChatMetadata]);
+
+  // Load initial configuration
+  useEffect(() => {
+    const loadInitialConfig = async () => {
+      try {
+        setIsLoading(true);
+
+        // Get selected model
+        const modelResponse = await backendFetch("/selected_model");
+        if (modelResponse.ok) {
+          const { model } = await modelResponse.json();
+          setSelectedModel(model);
+        }
+
+        // Get selected sources
+        const sourcesResponse = await backendFetch("/selected_sources");
+        if (sourcesResponse.ok) {
+          const { sources } = await sourcesResponse.json();
+          setSelectedSources(sources);
+        }
+
+        await fetchModelSettings();
+        await fetchTavilySettings();
+
+
+        // Get available models
+        await fetchAvailableModels();
+
+        // Get sources
+        await fetchSources();
+
+        // Get chats if history section is expanded (which it is by default)
+        if (expandedSections.has('history')) {
+          await fetchChats();
+        }
+      } catch (error) {
+        console.error("Error loading initial config:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadInitialConfig();
+  }, [expandedSections, fetchAvailableModels, fetchChats, fetchModelSettings, fetchSources, fetchTavilySettings]);
 
   // Fetch chats when history section is expanded
   useEffect(() => {
