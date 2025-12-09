@@ -24,6 +24,7 @@ This module provides the main HTTP API endpoints and WebSocket connections for:
 - Vector store operations
 """
 
+import asyncio
 import json
 import os
 import uuid
@@ -91,6 +92,7 @@ async def lifespan(app: FastAPI):
         warmup_manager.set_agent(agent)
         logger.info("Starting supervisor startup briefing and warmup registration")
         await warmup_manager.prime_supervisor()
+        asyncio.create_task(warmup_manager.start_when_ready())
     except Exception as e:
         logger.error(f"Failed to initialize PostgreSQL storage: {e}")
         raise

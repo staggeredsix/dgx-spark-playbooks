@@ -22,6 +22,7 @@ import requests
 from fastapi import UploadFile
 
 MAX_DOWNLOAD_SIZE = 20 * 1024 * 1024  # 20 MB safeguard
+MAX_UPLOAD_SIZE = MAX_DOWNLOAD_SIZE
 MEDIA_URL_PATTERN = re.compile(r"https?://[^\s>]+", re.IGNORECASE)
 
 
@@ -30,12 +31,12 @@ def _to_data_uri(raw_bytes: bytes, mime_type: str) -> str:
     return f"data:{mime_type};base64,{encoded}"
 
 
-def _extract_video_frames(video_path: Path, max_frames: int = 120) -> List[dict]:
-    """Extract frames from a video file every 4 frames with timestamps.
+def _extract_video_frames(video_path: Path, max_frames: int = 60) -> List[dict]:
+    """Extract representative frames from a video file with timestamps.
 
-    The function samples every 4th frame to preserve ordering while keeping payloads
-    manageable. Each returned item includes the frame's timestamp (in seconds) and
-    a JPEG data URI for downstream VLM consumption.
+    To keep uploads lightweight and avoid overwhelming the backend or VLM payloads,
+    we cap extraction to ``max_frames`` frames while sampling evenly across the
+    full duration.
     """
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -45,7 +46,7 @@ def _extract_video_frames(video_path: Path, max_frames: int = 120) -> List[dict]
     frames: List[dict] = []
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
-    stride = 4
+    stride = max(1, frame_count // max_frames) if frame_count else 1
 
     if frame_count == 0:
         cap.release()
@@ -115,6 +116,9 @@ def process_uploaded_media(file: UploadFile) -> List[str | dict]:
     content = file.file.read()
     if not content:
         raise ValueError("Uploaded file is empty")
+
+    if len(content) > MAX_UPLOAD_SIZE:
+        raise ValueError("Uploaded file exceeds the 20 MB size limit")
 
     content_type = file.content_type or ""
 
