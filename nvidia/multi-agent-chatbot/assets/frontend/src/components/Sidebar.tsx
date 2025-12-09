@@ -336,6 +336,8 @@ export default function Sidebar({
     if (!isVisible) return;
 
     const handleClickOutside = (event: MouseEvent) => {
+      if (showAdvancedSettings) return;
+
       const target = event.target as Node;
 
       if (sidebarRef.current?.contains(target)) return;
@@ -349,7 +351,7 @@ export default function Sidebar({
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [isVisible]);
+  }, [isVisible, showAdvancedSettings]);
 
   const toggleSection = (section: string) => {
     const newExpandedSections = new Set(expandedSections);
@@ -705,7 +707,11 @@ export default function Sidebar({
         <>
           <div
             className={`${styles.sidebarOverlay} ${isClosing ? styles.closing : ''}`}
-            onClick={handleClose}
+            onClick={() => {
+              if (!showAdvancedSettings) {
+                handleClose();
+              }
+            }}
           />
           <div
             className={`${styles.sidebar} ${isClosing ? styles.closing : ''}`}

@@ -56,6 +56,28 @@ Each playbook includes prerequisites, step-by-step instructions, troubleshooting
 - **Developer Forum**: https://forums.developer.nvidia.com/c/accelerated-computing/dgx-spark-gb10
 - **Terms of Service**: https://assets.ngc.nvidia.com/products/api-catalog/legal/NVIDIA%20API%20Trial%20Terms%20of%20Service.pdf
 
+
+## Download FLUX fp4 weights
+
+Use the helper script to pull just the fp4 folder from the gated FLUX.1-dev ONNX repository after you have accepted the model license on Hugging Face.
+
+```bash
+# 1) Authenticate (either interactively or by exporting HF_TOKEN)
+huggingface-cli login  # paste your token
+
+# 2) Download only the fp4 files into ./flux-fp4
+./scripts/download_flux_fp4.sh
+```
+
+The script wraps the Hugging Face CLI command:
+
+```bash
+huggingface-cli download \
+  black-forest-labs/FLUX.1-dev-onnx \
+  --local-dir flux-fp4 \
+  --include "transformer.opt/fp4/**"
+```
+
 ## License
 
 See:
