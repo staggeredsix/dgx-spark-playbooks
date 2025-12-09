@@ -48,6 +48,16 @@
   cursor: not-allowed;
 }
 
+.completionSignal {
+  margin: 10px 0 6px;
+  padding: 10px 12px;
+  background: #ecfdf3;
+  border: 1px solid #10b981;
+  border-radius: 8px;
+  color: #065f46;
+  font-weight: 600;
+}
+
 .toolingBox {
   background: #f9fafb;
   border: 1px dashed #d1d5db;

@@ -100,6 +100,21 @@
   z-index: 15;
 }
 
+.startupCompletionBanner {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #ecfdf3;
+  color: #065f46;
+  border: 1px solid #10b981;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-weight: 700;
+  z-index: 35;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.18);
+}
+
 .closeButton {
   position: absolute;
   top: 12px;

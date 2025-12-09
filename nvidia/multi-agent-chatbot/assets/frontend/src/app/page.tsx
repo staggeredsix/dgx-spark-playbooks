@@ -49,6 +49,7 @@ const STARTUP_MESSAGES = [
 const MESSAGE_DURATION = 5000;
 const FADE_DURATION = 600;
 const ESCAPE_BUTTON_DELAY = 30000;
+const COMPLETION_TRIGGER = "Ride, captain ride upon your mystery ship!";
 
 export default function Home() {
   const [query, setQuery] = useState("");
@@ -61,7 +62,8 @@ export default function Home() {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [activePane, setActivePane] = useState<'chat' | 'testing'>('chat');
-  const [hasConnected, setHasConnected] = useState(false);
+  const [warmupComplete, setWarmupComplete] = useState(false);
+  const [completionSignal, setCompletionSignal] = useState<string | null>(null);
   const [ellipsis, setEllipsis] = useState('.');
   const [loadingMessages, setLoadingMessages] = useState<string[]>([]);
   const [currentLoadingMessage, setCurrentLoadingMessage] = useState(0);
@@ -71,7 +73,7 @@ export default function Home() {
   const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    if (hasConnected || loadingDismissed) return;
+    if (warmupComplete || loadingDismissed) return;
 
     const sequence = ['.', '..', '...', '....'];
     let index = 0;
@@ -82,7 +84,7 @@ export default function Home() {
     }, 450);
 
     return () => clearInterval(interval);
-  }, [hasConnected, loadingDismissed]);
+  }, [warmupComplete, loadingDismissed]);
 
   useEffect(() => {
     const [first, ...rest] = STARTUP_MESSAGES;
@@ -96,7 +98,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (hasConnected || loadingDismissed || loadingMessages.length === 0) return;
+    if (warmupComplete || loadingDismissed || loadingMessages.length === 0) return;
 
     setIsFadingMessage(false);
 
@@ -109,16 +111,52 @@ export default function Home() {
       clearTimeout(fadeTimeout);
       clearTimeout(nextMessageTimeout);
     };
-  }, [currentLoadingMessage, hasConnected, loadingDismissed, loadingMessages]);
+  }, [currentLoadingMessage, warmupComplete, loadingDismissed, loadingMessages]);
 
   useEffect(() => {
-    if (hasConnected || loadingDismissed) return;
+    if (warmupComplete || loadingDismissed) return;
 
     setShowEscapeOption(false);
     const timer = setTimeout(() => setShowEscapeOption(true), ESCAPE_BUTTON_DELAY);
 
     return () => clearTimeout(timer);
-  }, [hasConnected, loadingDismissed]);
+  }, [warmupComplete, loadingDismissed]);
+
+  useEffect(() => {
+    if (warmupComplete || loadingDismissed) return;
+
+    let timeout: NodeJS.Timeout | null = null;
+
+    const pollWarmupStatus = async () => {
+      try {
+        const response = await backendFetch("/warmup/status");
+        if (!response?.ok) return;
+
+        const payload = await response.json();
+        const completion = payload?.completion_signal as string | undefined;
+        const logs: unknown = payload?.logs;
+        const logMatch = Array.isArray(logs)
+          ? logs.some(entry => typeof entry === "string" && entry.includes(COMPLETION_TRIGGER))
+          : false;
+
+        if (payload?.status === "passed" && (completion === COMPLETION_TRIGGER || logMatch)) {
+          setCompletionSignal(completion || COMPLETION_TRIGGER);
+          setWarmupComplete(true);
+          return;
+        }
+      } catch (error) {
+        console.error("Error polling warmup status:", error);
+      }
+
+      timeout = setTimeout(pollWarmupStatus, 3000);
+    };
+
+    pollWarmupStatus();
+
+    return () => {
+      if (timeout) clearTimeout(timeout);
+    };
+  }, [warmupComplete, loadingDismissed]);
 
   // Load initial chat ID
   useEffect(() => {
@@ -168,12 +206,6 @@ export default function Home() {
     setRefreshTrigger(prev => prev + 1);
   };
 
-  const handleConnectionStatusChange = (connected: boolean) => {
-    if (connected) {
-      setHasConnected(true);
-    }
-  };
-
   const handleEscapeToWarmup = () => {
     setLoadingDismissed(true);
     setActivePane('testing');
@@ -181,7 +213,10 @@ export default function Home() {
 
   return (
     <div className={styles.container}>
-      <Sidebar 
+      {completionSignal && warmupComplete && (
+        <div className={styles.startupCompletionBanner}>{completionSignal}</div>
+      )}
+      <Sidebar
         showIngestion={showIngestion}
         setShowIngestion={setShowIngestion}
         refreshTrigger={refreshTrigger}
@@ -218,14 +253,13 @@ export default function Home() {
                 abortControllerRef={abortControllerRef}
                 setShowIngestion={setShowIngestion}
                 currentChatId={currentChatId}
-                onConnectionStatusChange={handleConnectionStatusChange}
               />
             </div>
           )}
         </div>
       </div>
 
-      {!hasConnected && !loadingDismissed && (
+      {!warmupComplete && !loadingDismissed && (
         <div className={styles.startupOverlay}>
           <div className={styles.startupCard}>
             <div className={styles.startupRow}>
