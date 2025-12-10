@@ -93,9 +93,18 @@ def _serialize_video_bytes(video_bytes: bytes) -> dict:
 
     encoded = base64.b64encode(video_bytes).decode("utf-8")
     data_uri = f"data:video/mp4;base64,{encoded}"
-    markdown = f'<video controls width="512" src="{data_uri}">Your browser does not support the video tag.</video>'
+    markdown = " ".join(
+        [
+            f'<video controls width="512" src="{data_uri}">Your browser does not support the video tag.</video>',
+            f'<a href="{data_uri}" download="wan-video.mp4">Download video</a>',
+        ]
+    )
 
-    return {"video_base64": data_uri, "video_markdown": markdown}
+    return {
+        "video_base64": data_uri,
+        "video_markdown": markdown,
+        "video_filename": "wan-video.mp4",
+    }
 
 
 @app.on_event("startup")

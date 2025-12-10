@@ -24,6 +24,27 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"; // NEW
 import { oneDark, oneLight, Dark, Light } from "react-syntax-highlighter/dist/esm/styles/prism"; // NEW
 import WelcomeSection from "./WelcomeSection";
 
+const VIDEO_SOURCE_REGEX = /src=["'](data:video[^"']+)["']/i;
+
+function extractVideoSrc(content?: string): string | undefined {
+  if (!content) return undefined;
+  const match = content.match(VIDEO_SOURCE_REGEX);
+  if (match?.[1]) {
+    return match[1];
+  }
+
+  const markdownLink = content.match(/\((data:video[^)]+)\)/i);
+  return markdownLink?.[1];
+}
+
+function stripVideoMarkup(content?: string): string {
+  if (!content) return "";
+  return content
+    .replace(/<video[^>]*>[\s\S]*?<\/video>/gi, "")
+    .replace(/<a[^>]+data:video[^>]*>.*?<\/a>/gi, "")
+    .trim();
+}
+
 export function makeChatTheme(isDark: boolean) {
   const base = isDark ? oneDark : oneLight;
 
@@ -173,6 +194,9 @@ interface Message {
   type: "HumanMessage" | "AssistantMessage" | "ToolMessage";
   content: string;
   isImage?: boolean;
+  isVideo?: boolean;
+  videoSrc?: string;
+  downloadName?: string;
 }
 
 
@@ -213,16 +237,24 @@ export default function QuerySection({
     try {
       const parsed = JSON.parse(raw);
       return Array.isArray(parsed)
-        ? parsed.map((msg: any): Message => ({
-            type:
-              msg?.type === "HumanMessage"
-                ? "HumanMessage"
-                : msg?.type === "ToolMessage"
-                ? "ToolMessage"
-                : "AssistantMessage",
-            content: typeof msg?.content === "string" ? msg.content : String(msg?.content ?? ""),
-            isImage: Boolean(msg?.isImage),
-          }))
+        ? parsed.map((msg: any): Message => {
+            const content = typeof msg?.content === "string" ? msg.content : String(msg?.content ?? "");
+            const videoSrc = typeof msg?.videoSrc === "string" ? msg.videoSrc : extractVideoSrc(content);
+
+            return {
+              type:
+                msg?.type === "HumanMessage"
+                  ? "HumanMessage"
+                  : msg?.type === "ToolMessage"
+                  ? "ToolMessage"
+                  : "AssistantMessage",
+              content,
+              isImage: Boolean(msg?.isImage),
+              isVideo: Boolean(msg?.isVideo) || Boolean(videoSrc),
+              videoSrc,
+              downloadName: typeof msg?.downloadName === "string" ? msg.downloadName : undefined,
+            };
+          })
         : [];
     } catch {
       return [];
@@ -322,6 +354,31 @@ export default function QuerySection({
               setResponse(prev => {
                 const messages = normalizeMessages(prev);
                 messages.push({ type: "AssistantMessage", content: imageMarkdown, isImage: true });
+                return JSON.stringify(messages);
+              });
+              break;
+            }
+            case "video": {
+              const rawVideo = typeof msg.raw === "string" ? msg.raw : "";
+              const videoMarkdown =
+                msg.content ||
+                text ||
+                (rawVideo
+                  ? `<video controls src="${rawVideo}">Your browser does not support the video tag.</video>`
+                  : "");
+              const videoSrc = rawVideo || extractVideoSrc(videoMarkdown);
+              if (!videoMarkdown && !videoSrc) break;
+
+              hasAssistantContent.current = true;
+              setResponse(prev => {
+                const messages = normalizeMessages(prev);
+                messages.push({
+                  type: "AssistantMessage",
+                  content: videoMarkdown,
+                  isVideo: true,
+                  videoSrc,
+                  downloadName: typeof msg.filename === "string" ? msg.filename : undefined,
+                });
                 return JSON.stringify(messages);
               });
               break;
@@ -668,11 +725,14 @@ export default function QuerySection({
         {parseMessages(response).map((message, index) => {
           const isHuman = message.type === "HumanMessage";
           const key = `${message.type}-${index}`;
-          
-          if (!message.content?.trim()) return null;
-          
+          const videoSrc = message.videoSrc || extractVideoSrc(message.content);
+          const cleanedContent = message.isVideo ? stripVideoMarkup(message.content) : message.content;
+          const shouldRenderMarkdown = Boolean(cleanedContent?.trim());
+
+          if (!message.content?.trim() && !videoSrc) return null;
+
           return (
-            <div 
+            <div
               key={key} 
               className={`${styles.messageWrapper} ${isHuman ? styles.userMessageWrapper : styles.assistantMessageWrapper}`}
               style={{
@@ -682,12 +742,28 @@ export default function QuerySection({
 
             <div className={`${styles.message} ${isHuman ? styles.userMessage : styles.assistantMessage}`}>
               <div className={styles.markdown}>
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={markdownComponents}
-                >
-                  {message.content}
-                </ReactMarkdown>
+                {videoSrc && (
+                  <div className={styles.videoWrapper}>
+                    <video controls src={videoSrc} className={styles.videoPlayer}>
+                      Your browser does not support the video tag.
+                    </video>
+                    <a
+                      href={videoSrc}
+                      download={message.downloadName || "wan-video.mp4"}
+                      className={styles.videoDownload}
+                    >
+                      Download video
+                    </a>
+                  </div>
+                )}
+                {shouldRenderMarkdown && (
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={markdownComponents}
+                  >
+                    {cleanedContent}
+                  </ReactMarkdown>
+                )}
               </div>
             </div>
             </div>
