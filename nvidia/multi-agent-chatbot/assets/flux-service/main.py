@@ -9,17 +9,16 @@ import logging
 import os
 from typing import Optional
 
-import numpy as np
+import torch
+from diffusers import FluxPipeline
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from PIL import Image
 
-from flux_trt_engine import FluxTRTEngine
-
 logger = logging.getLogger("flux-service")
 logging.basicConfig(level=logging.INFO)
 
-FLUX_TRT_ENGINE_PATH = os.environ.get("FLUX_TRT_ENGINE_PATH", "flux-trt/flux-fp4.plan")
+FLUX_MODEL_ID = os.environ.get("FLUX_MODEL_ID", "black-forest-labs/FLUX.1-schnell")
 
 app = FastAPI(title="FLUX Image Service", version="1.0")
 
@@ -42,10 +41,10 @@ class HealthResponse(BaseModel):
     cache_path: str
 
 
-_flux_engine: FluxTRTEngine | None = None
-_provider = "TensorRT"
-_model_id = os.getenv("FLUX_MODEL_ID", "black-forest-labs/FLUX.1-dev-onnx")
-_model_cache = os.getenv("FLUX_MODEL_DIR", "/models/flux-fp4")
+_flux_pipeline: FluxPipeline | None = None
+_provider = "diffusers"
+_model_id = FLUX_MODEL_ID
+_model_cache = os.getenv("HF_HOME", os.path.join(os.path.expanduser("~"), ".cache", "huggingface"))
 
 
 def _encode_image(image: Image.Image | bytes) -> dict:
@@ -64,54 +63,62 @@ def _encode_image(image: Image.Image | bytes) -> dict:
     }
 
 
-def _ensure_engine() -> FluxTRTEngine:
-    global _flux_engine
-    if _flux_engine is None:
-        _flux_engine = FluxTRTEngine(FLUX_TRT_ENGINE_PATH)
-    return _flux_engine
+def _ensure_pipeline() -> FluxPipeline:
+    global _flux_pipeline
+    if _flux_pipeline is None:
+        logger.info("Loading FluxPipeline model %s", FLUX_MODEL_ID)
+        pipeline = FluxPipeline.from_pretrained(
+            FLUX_MODEL_ID,
+            torch_dtype=torch.bfloat16,
+        )
+        pipeline.to("cuda")
+        _flux_pipeline = pipeline
+    return _flux_pipeline
 
 
 @app.on_event("startup")
 async def _load_model_on_startup() -> None:
     try:
-        _ensure_engine()
-        logger.info("FLUX TensorRT engine loaded from %s", FLUX_TRT_ENGINE_PATH)
+        _ensure_pipeline()
+        logger.info("FLUX pipeline loaded for model %s", FLUX_MODEL_ID)
     except Exception as exc:  # pragma: no cover - service startup diagnostics
-        logger.exception("Failed to load FLUX TensorRT engine at startup: %s", exc)
+        logger.exception("Failed to load FLUX pipeline at startup: %s", exc)
         raise
 
 
 @app.get("/health", response_model=HealthResponse)
 def healthcheck():
-    status = "ok" if _flux_engine is not None else "loading"
+    status = "ok" if _flux_pipeline is not None else "loading"
     return HealthResponse(status=status, provider=_provider, model=_model_id, cache_path=_model_cache)
 
 
 @app.post("/generate_image")
 async def generate_image(request: GenerateImageRequest):
     try:
-        flux_engine = _ensure_engine()
+        pipeline = _ensure_pipeline()
     except Exception as exc:
-        logger.exception("Engine initialization failed")
+        logger.exception("Pipeline initialization failed")
         raise HTTPException(status_code=500, detail=str(exc))
 
-    generator = np.random.RandomState(request.seed) if request.seed is not None else None
-    if generator is not None:
-        np.random.seed(request.seed)
+    generator = None
+    if request.seed is not None:
+        generator = torch.Generator(device="cuda")
+        generator.manual_seed(request.seed)
 
     try:
-        image = flux_engine.generate(
+        output = pipeline(
             prompt=request.prompt,
             negative_prompt=request.negative_prompt,
-            width=request.width,
             height=request.height,
-            steps=request.steps,
+            width=request.width,
+            num_inference_steps=request.steps,
             guidance_scale=request.guidance_scale,
             generator=generator,
         )
+        image = output.images[0]
     except Exception as exc:  # pragma: no cover - runtime inference errors
-        logger.exception("FLUX TensorRT inference failed")
-        raise HTTPException(status_code=500, detail=f"FLUX TensorRT inference failed: {exc}")
+        logger.exception("FLUX pipeline inference failed")
+        raise HTTPException(status_code=500, detail=f"FLUX pipeline inference failed: {exc}")
 
     response = _encode_image(image)
     response.update(
