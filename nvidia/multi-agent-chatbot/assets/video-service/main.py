@@ -132,11 +132,8 @@ async def generate_video(request: GenerateVideoRequest):
         )
 
     def _run_inference() -> dict:
-        client = InferenceClient(
-            model=WAN_REPO_ID if not WAN_INFERENCE_ENDPOINT else None,
-            token=token,
-            endpoint=WAN_INFERENCE_ENDPOINT,
-        )
+        target = WAN_INFERENCE_ENDPOINT or WAN_REPO_ID
+        client = InferenceClient(model=target, token=token)
         raw_video = client.text_to_video(request.prompt)
         video_bytes = _coalesce_video_bytes(raw_video)
         payload = _serialize_video_bytes(video_bytes)
