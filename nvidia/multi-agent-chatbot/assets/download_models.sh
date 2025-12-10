@@ -55,12 +55,18 @@ pull_ollama_models() {
   echo "Starting Ollama container for model caching..."
   docker compose -f "${COMPOSE_FILE}" up -d ollama
 
-  wait_for_running() {
-    for attempt in {1..20}; do
+  wait_for_ready() {
+    for attempt in {1..30}; do
       status=$(docker inspect -f '{{.State.Status}}' ollama 2>/dev/null || true)
       case "$status" in
         running)
-          return 0
+          if docker exec -i ollama ollama list >/dev/null 2>&1; then
+            return 0
+          fi
+          echo "Ollama container is running but not ready yet (attempt ${attempt}/30); retrying..."
+          ;;
+        restarting)
+          echo "Ollama container is restarting; waiting for it to stabilize (attempt ${attempt}/30)..."
           ;;
         exited)
           echo "Ollama container exited unexpectedly; aborting startup."
@@ -69,11 +75,11 @@ pull_ollama_models() {
           ;;
       esac
 
-      echo "Waiting for Ollama container to start (attempt ${attempt}/20)..."
+      echo "Waiting for Ollama container to start (attempt ${attempt}/30)..."
       sleep 3
     done
 
-    echo "Ollama container did not start within the expected time; aborting."
+    echo "Ollama container did not become ready within the expected time; aborting."
     docker compose -f "${COMPOSE_FILE}" logs --tail 50 ollama || true
     exit 1
   }
@@ -84,12 +90,10 @@ pull_ollama_models() {
   }
   trap cleanup EXIT
 
-  wait_for_running
-
-  echo "Waiting 10 seconds for Ollama to finish startup before pulling models..."
-  sleep 10
+  wait_for_ready
 
   for model in "${MODELS[@]}"; do
+    wait_for_ready
     echo "Pulling ${model} into Ollama..."
     docker exec -i ollama ollama pull "${model}"
     echo "Finished pulling ${model}"
