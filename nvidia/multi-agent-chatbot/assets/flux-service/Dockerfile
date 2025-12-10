@@ -23,24 +23,9 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Upgrade pip before installing dependencies
 RUN pip install --upgrade pip
 
-# Core GPU + model dependencies for FLUX fp4
-RUN pip install --no-cache-dir \
-    torch torchvision --index-url https://download.pytorch.org/whl/cu124
+COPY requirements.txt /app/requirements.txt
 
-RUN pip install --no-cache-dir \
-    diffusers>=0.32.0 \
-    transformers>=4.45.0 \
-    accelerate \
-    safetensors \
-    sentencepiece \
-    bitsandbytes \
-    onnxruntime>=1.19.2 \
-    fastapi \
-    uvicorn[standard] \
-    huggingface-hub \
-    pillow \
-    numpy \
-    pydantic
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Cache directory for models
 ENV HF_HOME=/models/hf_cache

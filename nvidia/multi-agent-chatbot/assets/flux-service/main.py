@@ -4,23 +4,29 @@
 from __future__ import annotations
 
 import base64
+import importlib.util
 import io
 import logging
 import os
-from typing import Optional
+import sys
+from pathlib import Path
+from typing import Optional, TYPE_CHECKING, Type
 
 import numpy as np
 import onnxruntime as ort
-from diffusers import FluxOnnxPipeline
 from fastapi import FastAPI, HTTPException
 from huggingface_hub import snapshot_download
 from pydantic import BaseModel, Field
 from PIL import Image
 
+if TYPE_CHECKING:  # pragma: no cover - import guard for type checkers only
+    from pipeline_flux_onnx import FluxOnnxPipeline
+
 logger = logging.getLogger("flux-service")
 logging.basicConfig(level=logging.INFO)
 
-MODEL_ID = os.getenv("FLUX_MODEL_ID", "black-forest-labs/FLUX.1-dev-onnx/transformer.opt/fp4")
+MODEL_ID = os.getenv("FLUX_MODEL_ID", "black-forest-labs/FLUX.1-dev-onnx")
+MODEL_SUBDIR = os.getenv("FLUX_MODEL_SUBDIR", "transformer.opt/fp4")
 MODEL_CACHE = os.getenv("FLUX_MODEL_DIR", "/models/flux-fp4")
 DEFAULT_HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
 
@@ -45,7 +51,7 @@ class HealthResponse(BaseModel):
     cache_path: str
 
 
-_pipeline: FluxOnnxPipeline | None = None
+_pipeline: "FluxOnnxPipeline" | None = None
 _provider: str | None = None
 
 
@@ -53,7 +59,37 @@ def _resolve_token(override: Optional[str]) -> Optional[str]:
     return override or DEFAULT_HF_TOKEN
 
 
-def _ensure_pipeline(token: Optional[str]) -> FluxOnnxPipeline:
+def _load_flux_onnx_pipeline(local_path: str, model_subdir: str) -> Type["FluxOnnxPipeline"]:
+    candidates = [
+        Path(local_path) / "pipeline_flux_onnx.py",
+        Path(local_path) / "pipeline" / "pipeline_flux_onnx.py",
+        Path(local_path) / model_subdir / "pipeline_flux_onnx.py",
+        Path(local_path) / model_subdir / "pipeline" / "pipeline_flux_onnx.py",
+    ]
+
+    module_path = next((path for path in candidates if path.is_file()), None)
+    if module_path is None:
+        raise ImportError(
+            "Could not locate pipeline_flux_onnx.py in the downloaded FLUX model directory."
+        )
+
+    if str(module_path.parent) not in sys.path:
+        sys.path.insert(0, str(module_path.parent))
+
+    spec = importlib.util.spec_from_file_location("pipeline_flux_onnx", module_path)
+    if spec is None or spec.loader is None:  # pragma: no cover - import guard
+        raise ImportError("Unable to load pipeline_flux_onnx module")
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    if not hasattr(module, "FluxOnnxPipeline"):
+        raise ImportError("FluxOnnxPipeline not found in pipeline_flux_onnx.py")
+
+    return getattr(module, "FluxOnnxPipeline")
+
+
+def _ensure_pipeline(token: Optional[str]) -> "FluxOnnxPipeline":
     global _pipeline, _provider
     if _pipeline is not None:
         return _pipeline
@@ -77,7 +113,14 @@ def _ensure_pipeline(token: Optional[str]) -> FluxOnnxPipeline:
             "Failed to download FLUX fp4 weights. Provide a valid HF token or mount the model into FLUX_MODEL_DIR."
         ) from exc
 
-    _pipeline = FluxOnnxPipeline.from_pretrained(local_path, provider=_provider, token=token)
+    FluxOnnxPipeline = _load_flux_onnx_pipeline(local_path, MODEL_SUBDIR)
+
+    pipeline_root = Path(local_path)
+    subdir_path = pipeline_root / MODEL_SUBDIR
+    if subdir_path.is_dir():
+        pipeline_root = subdir_path
+
+    _pipeline = FluxOnnxPipeline.from_pretrained(str(pipeline_root), provider=_provider, token=token)
     return _pipeline
 
 
