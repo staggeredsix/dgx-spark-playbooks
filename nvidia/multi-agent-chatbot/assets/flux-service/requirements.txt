@@ -4,6 +4,7 @@ accelerate
 safetensors
 huggingface-hub>=0.27.0
 pillow>=11.0.0
+sentencepiece>=0.2.0
 fastapi
 uvicorn[standard]
 pydantic
