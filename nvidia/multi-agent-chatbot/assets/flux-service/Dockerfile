@@ -9,6 +9,7 @@ WORKDIR /app
 
 COPY requirements.txt /app/requirements.txt
 RUN pip install --upgrade pip && \
+    pip3 install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu130 && \
     pip install --no-cache-dir -r /app/requirements.txt
 
 COPY . /app

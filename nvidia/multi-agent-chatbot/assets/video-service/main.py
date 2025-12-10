@@ -20,7 +20,9 @@ WAN_REPO_ID = os.getenv("WAN_REPO_ID", "QuantStack/Wan2.2-T2V-A14B-GGUF")
 WAN_FILENAME = os.getenv("WAN_FILENAME", "Wan2.2-T2V-A14B-HighNoise-Q4_K_M.gguf")
 MODEL_CACHE = os.getenv("WAN_MODEL_DIR", "/models/wan-videos")
 WAN_PRECACHE = os.getenv("WAN_PRECACHE", "false").lower() == "true"
+
 WAN_PROVIDER = os.getenv("WAN_PROVIDER", "hf-inference")
+
 WAN_INFERENCE_ENDPOINT = os.getenv("WAN_INFERENCE_ENDPOINT")
 DEFAULT_HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
 
@@ -35,7 +37,7 @@ class GenerateVideoRequest(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     model: str
-    provider: str
+    provider: Optional[str]
     cache_path: str
 
 
@@ -93,9 +95,18 @@ def _serialize_video_bytes(video_bytes: bytes) -> dict:
 
     encoded = base64.b64encode(video_bytes).decode("utf-8")
     data_uri = f"data:video/mp4;base64,{encoded}"
-    markdown = f'<video controls width="512" src="{data_uri}">Your browser does not support the video tag.</video>'
+    markdown = " ".join(
+        [
+            f'<video controls width="512" src="{data_uri}">Your browser does not support the video tag.</video>',
+            f'<a href="{data_uri}" download="wan-video.mp4">Download video</a>',
+        ]
+    )
 
-    return {"video_base64": data_uri, "video_markdown": markdown}
+    return {
+        "video_base64": data_uri,
+        "video_markdown": markdown,
+        "video_filename": "wan-video.mp4",
+    }
 
 
 @app.on_event("startup")
@@ -123,13 +134,17 @@ async def generate_video(request: GenerateVideoRequest):
     if not token:
         raise HTTPException(status_code=400, detail="A Hugging Face token is required for Wan2.2 video generation.")
 
-    def _run_inference() -> dict:
-        client = InferenceClient(
-            model=WAN_REPO_ID,
-            token=token,
-            provider=WAN_PROVIDER,
-            endpoint=WAN_INFERENCE_ENDPOINT,
+    if WAN_INFERENCE_ENDPOINT and "huggingface.co" in WAN_INFERENCE_ENDPOINT:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Direct Hugging Face inference endpoints are not supported for Wan2.2 video generation. Configure a self-hosted endpoint instead."
+            ),
         )
+
+    def _run_inference() -> dict:
+        target = WAN_INFERENCE_ENDPOINT or WAN_REPO_ID
+        client = InferenceClient(model=target, token=token)
         raw_video = client.text_to_video(request.prompt)
         video_bytes = _coalesce_video_bytes(raw_video)
         payload = _serialize_video_bytes(video_bytes)
