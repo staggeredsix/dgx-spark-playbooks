@@ -64,18 +64,26 @@ pull_ollama_models() {
   echo "Waiting 10 seconds for Ollama to initialize..."
   sleep 10
 
-  for model in "${MODELS[@]}"; do
-    if docker exec -i ollama ollama list | awk '{print $1}' | grep -Fxq "${model}"; then
-      echo "Model ${model} already present; skipping."
-      echo
-      continue
-    fi
+  docker exec -i \
+    -e MODELS="${MODELS[*]}" \
+    ollama bash <<'PULL_MODELS'
+set -euo pipefail
 
-    echo "Pulling ${model} into Ollama..."
-    docker exec -it ollama ollama pull "${model}"
-    echo "Finished pulling ${model}"
+IFS=' ' read -r -a models <<<"${MODELS}"
+
+for model in "${models[@]}"; do
+  if ollama list | awk '{print $1}' | grep -Fxq "${model}"; then
+    echo "Model ${model} already present; skipping."
     echo
-  done
+    continue
+  fi
+
+  echo "Pulling ${model} into Ollama..."
+  ollama pull "${model}"
+  echo "Finished pulling ${model}"
+  echo
+done
+PULL_MODELS
 }
 
 download_flux_model() {

@@ -105,6 +105,23 @@ Open your browser and go to: [http://localhost:3000](http://localhost:3000)
 You should see the following UI in your browser:
 <img src="assets/multi-agent-chatbot.png" alt="Frontend UI" style="max-width:600px;border-radius:5px;justify-content:center">
 
+### Quick docker exec checks
+Skip extra tooling and run these fast container checks to confirm the stack is healthy. If you skipped `./model_download.sh`, you can also pull the Ollama models directly inside the container:
+
+```bash
+# Pull the default models inside the Ollama container
+docker exec -it ollama bash -lc 'for m in gpt-oss:120b qwen3-coder:30b ministral-3:14b qwen3-embedding:8b; do ollama pull "$m"; done'
+
+# Confirm the backend responds
+docker exec -it backend curl -s http://localhost:8000/health
+
+# Verify models are visible in the Ollama runtime
+docker exec -it ollama ollama list
+
+# Spot-check Qdrant status
+docker exec -it qdrant curl -s http://localhost:6333/health | jq
+```
+
 ### 6. Try out the sample prompts
 Click on any of the tiles on the frontend to try out the supervisor and the other agents.
 
