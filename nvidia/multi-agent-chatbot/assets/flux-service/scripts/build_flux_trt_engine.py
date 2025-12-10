@@ -4,86 +4,75 @@
 from __future__ import annotations
 
 import os
-from glob import glob
+import sys
 from pathlib import Path
 
 import tensorrt as trt
 
-DEFAULT_MODEL_DIR = "flux-fp4"
+DEFAULT_MODEL_DIR = "/models/flux-fp4"
 DEFAULT_MODEL_SUBDIR = "transformer.opt/fp4"
 DEFAULT_ENGINE_PATH = "flux-trt/flux-fp4.plan"
 
 logger = trt.Logger(trt.Logger.INFO)
 
 
-def _find_onnx_path(model_dir: str, model_subdir: str) -> Path:
+def _resolve_paths() -> tuple[Path, Path]:
     explicit = os.environ.get("FLUX_ONNX_PATH")
     if explicit:
         onnx_path = Path(explicit)
-        if not onnx_path.is_file():
-            raise FileNotFoundError(f"Provided FLUX_ONNX_PATH does not exist: {onnx_path}")
-        return onnx_path
+    else:
+        base_dir = os.environ.get("FLUX_MODEL_DIR") or DEFAULT_MODEL_DIR
+        subdir = os.environ.get("FLUX_MODEL_SUBDIR", DEFAULT_MODEL_SUBDIR)
+        onnx_path = Path(base_dir) / subdir / "model.onnx"
 
-    search_root = Path(model_dir) / model_subdir
-    matches = glob(str(search_root / "*.onnx"))
-    if not matches:
-        raise FileNotFoundError(
-            f"No ONNX files found under {search_root}. Run download_models.sh first or set FLUX_ONNX_PATH."
-        )
-    return Path(matches[0])
+    engine_path = Path(os.environ.get("FLUX_TRT_ENGINE_PATH") or DEFAULT_ENGINE_PATH)
+    return onnx_path, engine_path
 
 
 def _build_engine(onnx_path: Path, engine_path: Path) -> None:
-    engine_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(onnx_path, "rb") as f:
-        onnx_bytes = f.read()
+    model_dir = onnx_path.parent
+    model_file = onnx_path.name
 
     builder = trt.Builder(logger)
-    network_flags = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
-    network = builder.create_network(network_flags)
+    network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
     parser = trt.OnnxParser(network, logger)
-
-    if not parser.parse(onnx_bytes):  # pragma: no cover - TensorRT parser feedback
-        for idx in range(parser.num_errors):
-            logger.log(trt.Logger.ERROR, parser.get_error(idx).desc())
-        raise RuntimeError("Failed to parse the ONNX file for TensorRT.")
-
     config = builder.create_builder_config()
-    config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 4 * 1024 * 1024 * 1024)
+    config.max_workspace_size = 4 << 30  # 4 GB
+    config.set_flag(trt.BuilderFlag.FP16)
 
-    if builder.platform_has_fast_fp16:
-        config.set_flag(trt.BuilderFlag.FP16)
-        logger.log(trt.Logger.INFO, "Enabled FP16 precision for TensorRT engine build")
+    cwd = os.getcwd()
+    os.chdir(model_dir)
+    try:
+        with open(model_file, "rb") as f:
+            if not parser.parse(f.read()):  # pragma: no cover - TensorRT parser feedback
+                print("[build_flux_trt_engine] ONNX parse errors:")
+                for i in range(parser.num_errors):
+                    print(parser.get_error(i))
+                raise RuntimeError("Failed to parse the ONNX file for TensorRT.")
+    finally:
+        os.chdir(cwd)
 
-    profile = builder.create_optimization_profile()
-    # TODO: Adjust binding names/shapes for the actual FLUX inputs when available.
-    for idx in range(network.num_inputs):
-        shape = network.get_input(idx).shape
-        dims = tuple(max(1, dim) for dim in shape)
-        profile.set_shape(network.get_input(idx).name, dims, dims, dims)
-    config.add_optimization_profile(profile)
-
+    os.makedirs(engine_path.parent, exist_ok=True)
     logger.log(trt.Logger.INFO, f"Building TensorRT engine from {onnx_path} ...")
     engine = builder.build_engine(network, config)
     if engine is None:
-        raise RuntimeError("TensorRT engine build returned None")
+        raise RuntimeError("Failed to build TensorRT engine.")
 
-    serialized_engine = engine.serialize()
-    engine_path.write_bytes(serialized_engine)
+    with open(engine_path, "wb") as f:
+        f.write(engine.serialize())
     logger.log(trt.Logger.INFO, f"Serialized TensorRT engine to {engine_path}")
 
 
 def main() -> None:
-    model_dir = os.environ.get("FLUX_MODEL_DIR", DEFAULT_MODEL_DIR)
-    model_subdir = os.environ.get("FLUX_MODEL_SUBDIR", DEFAULT_MODEL_SUBDIR)
-    engine_path = Path(os.environ.get("FLUX_TRT_ENGINE_PATH", DEFAULT_ENGINE_PATH))
+    onnx_path, engine_path = _resolve_paths()
+    if not onnx_path.exists():
+        print(f"ERROR: ONNX file not found at {onnx_path}", file=sys.stderr)
+        sys.exit(1)
 
-    if engine_path.is_file():
-        logger.log(trt.Logger.INFO, f"Existing TensorRT engine found at {engine_path}; skipping rebuild.")
+    if engine_path.exists():
+        logger.log(trt.Logger.INFO, f"Engine already exists at {engine_path}; skipping rebuild.")
         return
 
-    onnx_path = _find_onnx_path(model_dir, model_subdir)
     logger.log(trt.Logger.INFO, f"Using ONNX file: {onnx_path}")
     logger.log(trt.Logger.INFO, f"Engine will be written to: {engine_path}")
 
