@@ -37,7 +37,7 @@ def _build_engine(onnx_path: str, engine_path: str) -> None:
     parser = trt.OnnxParser(network, logger)
 
     config = builder.create_builder_config()
-    config.max_workspace_size = 4 << 30
+    config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 4 << 30)  # 4 GB
     config.set_flag(trt.BuilderFlag.FP16)
 
     cwd = os.getcwd()
