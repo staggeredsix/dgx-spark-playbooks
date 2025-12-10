@@ -46,7 +46,7 @@ interface SidebarProps {
   setActivePane: (pane: 'chat' | 'testing') => void;
 }
 
-const DEFAULT_FLUX_MODEL = "black-forest-labs/FLUX.1-dev-onnx/transformer.opt/fp4";
+const DEFAULT_FLUX_MODEL = "black-forest-labs/FLUX.1-schnell";
 
 
 export default function Sidebar({ 
@@ -1060,7 +1060,7 @@ export default function Sidebar({
                       />
                       <div>
                         <span>Enable FLUX image generation</span>
-                        <p className={styles.helpText}>Use the fp4 pipeline from Hugging Face for image generation.</p>
+                        <p className={styles.helpText}>Use the FLUX diffusers pipeline from Hugging Face for image generation.</p>
                       </div>
                     </label>
                     <label className={styles.modalField}>

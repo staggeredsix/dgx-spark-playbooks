@@ -71,7 +71,7 @@ chmod +x model_download.sh
 ./model_download.sh
 ```
 
-> **FLUX image generation model**: If you opt in to the FLUX image pipeline, run `scripts/download_flux_fp4.sh` from this directory. By default it writes the fp4 weights to `assets/flux-fp4` (or a custom path you pass as the first argument), which matches the backend default download location. If TensorRT errors that `*.onnx_data` files are missing when building the engine, rerun the download script to refresh any partial download.
+> **FLUX image generation model**: If you opt in to the FLUX image pipeline, run `scripts/download_flux.sh` from this directory. By default it writes the weights to `assets/flux-schnell` (or a custom path you pass as the first argument) and will skip downloading if the model is already present.
 
 #### 4. Start the docker containers for the application
 This step starts the Ollama runtime, Qdrant, the backend API server, and the frontend UI. This step can take 10 to 20 minutes depending on network speed.
@@ -80,7 +80,7 @@ docker compose up -d --build
 ```
 
 > The compose file now builds two additional internal services:
-> * **flux-service**: a GPU-enabled FLUX fp4 image generator listening on port 8080
+> * **flux-service**: a GPU-enabled FLUX image generator listening on port 8080
 > * **video-service**: a Wan2.2 text-to-video helper listening on port 8081
 
 > **Tip**: The models compose file (`docker-compose-models.yml`) remains available for overrides and customization. If you prefer to keep your model configuration separate, you can still run:

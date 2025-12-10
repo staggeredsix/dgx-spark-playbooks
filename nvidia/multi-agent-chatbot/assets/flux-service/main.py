@@ -21,6 +21,7 @@ logging.basicConfig(level=logging.INFO)
 FLUX_MODEL_ID = os.environ.get("FLUX_MODEL_ID", "black-forest-labs/FLUX.1-schnell")
 FLUX_MODEL_DIR = os.environ.get("FLUX_MODEL_DIR")
 FLUX_MODEL_SUBDIR = os.environ.get("FLUX_MODEL_SUBDIR")
+HF_TOKEN = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACEHUB_API_TOKEN")
 
 app = FastAPI(title="FLUX Image Service", version="1.0")
 
@@ -81,15 +82,17 @@ def _resolve_model_id() -> str:
     return FLUX_MODEL_ID
 
 
-def _ensure_pipeline() -> FluxPipeline:
+def _ensure_pipeline(token_override: str | None = None) -> FluxPipeline:
     global _flux_pipeline
     if _flux_pipeline is None:
         global _model_id
         _model_id = _resolve_model_id()
         logger.info("Loading FluxPipeline model %s", _model_id)
+        hf_token = token_override or HF_TOKEN
         pipeline = FluxPipeline.from_pretrained(
             _model_id,
             torch_dtype=torch.bfloat16,
+            token=hf_token,
         )
         pipeline.to("cuda")
         _flux_pipeline = pipeline
@@ -114,8 +117,9 @@ def healthcheck():
 
 @app.post("/generate_image")
 async def generate_image(request: GenerateImageRequest):
+    token_override = request.hf_api_key or HF_TOKEN
     try:
-        pipeline = _ensure_pipeline()
+        pipeline = _ensure_pipeline(token_override)
     except Exception as exc:
         logger.exception("Pipeline initialization failed")
         raise HTTPException(status_code=500, detail=str(exc))

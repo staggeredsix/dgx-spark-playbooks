@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Utility to build a TensorRT engine for the FLUX FP4 ONNX model."""
+"""Utility to build a TensorRT engine for the FLUX ONNX model."""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ import sys
 
 import tensorrt as trt
 
-DEFAULT_MODEL_DIR = "/models/flux-fp4"
-DEFAULT_MODEL_SUBDIR = "transformer.opt/fp4"
-DEFAULT_ENGINE_PATH = "flux-trt/flux-fp4.plan"
+DEFAULT_MODEL_DIR = "/models/flux-schnell"
+DEFAULT_MODEL_SUBDIR = ""
+DEFAULT_ENGINE_PATH = "flux-trt/flux.plan"
 
 logger = trt.Logger(trt.Logger.INFO)
 

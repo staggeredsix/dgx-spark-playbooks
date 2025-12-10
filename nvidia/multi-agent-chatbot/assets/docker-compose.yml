@@ -87,14 +87,13 @@ services:
       dockerfile: Dockerfile
     environment:
       - FLUX_MODEL_ID=${FLUX_MODEL_ID:-black-forest-labs/FLUX.1-schnell}
-      - FLUX_MODEL_DIR=${FLUX_MODEL_DIR:-/models/flux-fp4}
-      - FLUX_MODEL_SUBDIR=${FLUX_MODEL_SUBDIR:-transformer.opt/fp4}
+      - FLUX_MODEL_DIR=${FLUX_MODEL_DIR:-/models/flux-schnell}
       - HUGGINGFACEHUB_API_TOKEN=${HUGGINGFACEHUB_API_TOKEN}
       - HF_TOKEN=${HF_TOKEN}
     ports:
       - "8080:8080"
     volumes:
-      - ./flux-fp4:/models/flux-fp4
+      - ./flux-schnell:/models/flux-schnell
       - hf-cache:/models/hf_cache
     restart: unless-stopped
     gpus: all

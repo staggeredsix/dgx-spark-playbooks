@@ -29,6 +29,7 @@ import contextlib
 import json
 import os
 import uuid
+from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import List, Optional, Dict
 
@@ -459,18 +460,24 @@ async def download_flux_model(request: FluxDownloadRequest):
     cache_dir = (
         os.getenv("FLUX_MODEL_DIR")
         or os.getenv("HUGGINGFACE_HUB_CACHE")
-        or "flux-fp4"
+        or "flux-schnell"
     )
 
+    cache_path = Path(cache_dir)
+    model_index_path = cache_path / "model_index.json"
+
+    if model_index_path.exists():
+        return {"status": "skipped", "model": model_id, "path": str(cache_path)}
+
     try:
+        cache_path.mkdir(parents=True, exist_ok=True)
         path = await asyncio.to_thread(
             snapshot_download,
             repo_id=model_id,
             repo_type="model",
             token=hf_token,
-            local_dir=cache_dir,
+            local_dir=str(cache_path),
             local_dir_use_symlinks=False,
-            allow_patterns=["transformer.opt/fp4/*"],
         )
         return {"status": "success", "model": model_id, "path": path}
     except Exception as e:
