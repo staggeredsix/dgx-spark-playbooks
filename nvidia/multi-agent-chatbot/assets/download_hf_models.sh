@@ -19,9 +19,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
-# Root repo for the FLUX ONNX FP4 model
-FLUX_MODEL_REPO="${FLUX_MODEL_REPO:-black-forest-labs/FLUX.1-dev-onnx}"
-FLUX_MODEL_SUBDIR="${FLUX_MODEL_SUBDIR:-transformer.opt/fp4}"
+# Root repo for the FLUX diffusers model
+FLUX_MODEL_REPO="${FLUX_MODEL_REPO:-black-forest-labs/FLUX.1-schnell}"
+FLUX_MODEL_DIR="${FLUX_MODEL_DIR:-flux-schnell}"
 HF_TOKEN="${HF_TOKEN:-${HUGGINGFACEHUB_API_TOKEN:-}}"
 
 WAN_T2V_MODEL="${WAN_T2V_MODEL:-Wan-AI/Wan2.2-T2V-A14B}"
@@ -50,19 +50,17 @@ download_flux_model() {
     return
   fi
 
-  echo "Downloading FLUX FP4 model ${FLUX_MODEL_REPO}/${FLUX_MODEL_SUBDIR} using Hugging Face Hub..."
+  echo "Downloading FLUX model ${FLUX_MODEL_REPO} using Hugging Face Hub..."
   FLUX_MODEL_REPO="${FLUX_MODEL_REPO}" \
-  FLUX_MODEL_SUBDIR="${FLUX_MODEL_SUBDIR}" \
   FLUX_MODEL_DIR="${FLUX_MODEL_DIR:-}" \
   HF_TOKEN="${HF_TOKEN}" \
   python - <<'PY'
 import os
 from huggingface_hub import snapshot_download
 
-repo_id = os.environ.get("FLUX_MODEL_REPO", "black-forest-labs/FLUX.1-dev-onnx")
-subdir = os.environ.get("FLUX_MODEL_SUBDIR", "transformer.opt/fp4")
+repo_id = os.environ.get("FLUX_MODEL_REPO", "black-forest-labs/FLUX.1-schnell")
 token = os.environ.get("HF_TOKEN")
-local_dir = os.environ.get("FLUX_MODEL_DIR") or os.environ.get("HUGGINGFACE_HUB_CACHE") or "flux-fp4"
+local_dir = os.environ.get("FLUX_MODEL_DIR") or os.environ.get("HUGGINGFACE_HUB_CACHE") or "flux-schnell"
 
 path = snapshot_download(
     repo_id=repo_id,
@@ -70,9 +68,8 @@ path = snapshot_download(
     token=token,
     local_dir=local_dir,
     local_dir_use_symlinks=False,
-    allow_patterns=[f"{subdir}/*"],
 )
-print(f"FLUX FP4 model ready at: {path}")
+print(f"FLUX model ready at: {path}")
 PY
 }
 
@@ -141,7 +138,7 @@ print(f"Wan2.2 T2V GGUF model ready at: {path}")
 PY
 }
 
-echo "Downloading FLUX FP4 pipeline..."
+echo "Downloading FLUX pipeline..."
 download_flux_model
 
 echo "Downloading Wan2.2 Text-to-Video model..."
