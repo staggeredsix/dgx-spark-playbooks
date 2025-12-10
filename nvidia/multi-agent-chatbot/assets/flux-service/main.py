@@ -4,31 +4,22 @@
 from __future__ import annotations
 
 import base64
-import importlib.util
 import io
 import logging
 import os
-import sys
-from pathlib import Path
-from typing import Optional, TYPE_CHECKING, Type
+from typing import Optional
 
 import numpy as np
-import onnxruntime as ort
 from fastapi import FastAPI, HTTPException
-from huggingface_hub import snapshot_download
 from pydantic import BaseModel, Field
 from PIL import Image
 
-if TYPE_CHECKING:  # pragma: no cover - import guard for type checkers only
-    from pipeline_flux_onnx import FluxOnnxPipeline
+from flux_trt_engine import FluxTRTEngine
 
 logger = logging.getLogger("flux-service")
 logging.basicConfig(level=logging.INFO)
 
-MODEL_ID = os.getenv("FLUX_MODEL_ID", "black-forest-labs/FLUX.1-dev-onnx")
-MODEL_SUBDIR = os.getenv("FLUX_MODEL_SUBDIR", "transformer.opt/fp4")
-MODEL_CACHE = os.getenv("FLUX_MODEL_DIR", "/models/flux-fp4")
-DEFAULT_HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
+FLUX_TRT_ENGINE_PATH = os.environ.get("FLUX_TRT_ENGINE_PATH", "flux-trt/flux-fp4.plan")
 
 app = FastAPI(title="FLUX Image Service", version="1.0")
 
@@ -51,77 +42,10 @@ class HealthResponse(BaseModel):
     cache_path: str
 
 
-_pipeline: "FluxOnnxPipeline" | None = None
-_provider: str | None = None
-
-
-def _resolve_token(override: Optional[str]) -> Optional[str]:
-    return override or DEFAULT_HF_TOKEN
-
-
-def _load_flux_onnx_pipeline(local_path: str, model_subdir: str) -> Type["FluxOnnxPipeline"]:
-    candidates = [
-        Path(local_path) / "pipeline_flux_onnx.py",
-        Path(local_path) / "pipeline" / "pipeline_flux_onnx.py",
-        Path(local_path) / model_subdir / "pipeline_flux_onnx.py",
-        Path(local_path) / model_subdir / "pipeline" / "pipeline_flux_onnx.py",
-    ]
-
-    module_path = next((path for path in candidates if path.is_file()), None)
-    if module_path is None:
-        raise ImportError(
-            "Could not locate pipeline_flux_onnx.py in the downloaded FLUX model directory."
-        )
-
-    if str(module_path.parent) not in sys.path:
-        sys.path.insert(0, str(module_path.parent))
-
-    spec = importlib.util.spec_from_file_location("pipeline_flux_onnx", module_path)
-    if spec is None or spec.loader is None:  # pragma: no cover - import guard
-        raise ImportError("Unable to load pipeline_flux_onnx module")
-
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    if not hasattr(module, "FluxOnnxPipeline"):
-        raise ImportError("FluxOnnxPipeline not found in pipeline_flux_onnx.py")
-
-    return getattr(module, "FluxOnnxPipeline")
-
-
-def _ensure_pipeline(token: Optional[str]) -> "FluxOnnxPipeline":
-    global _pipeline, _provider
-    if _pipeline is not None:
-        return _pipeline
-
-    available_providers = ort.get_available_providers()
-    _provider = "CUDAExecutionProvider" if "CUDAExecutionProvider" in available_providers else "CPUExecutionProvider"
-    logger.info("Available ONNX providers: %s", available_providers)
-    logger.info("Using ONNX provider: %s", _provider)
-
-    try:
-        local_path = snapshot_download(
-            repo_id=MODEL_ID,
-            repo_type="model",
-            token=token,
-            local_dir=MODEL_CACHE,
-            local_dir_use_symlinks=False,
-            local_files_only=token is None,
-        )
-    except Exception as exc:
-        raise RuntimeError(
-            "Failed to download FLUX fp4 weights. Provide a valid HF token or mount the model into FLUX_MODEL_DIR."
-        ) from exc
-
-    FluxOnnxPipeline = _load_flux_onnx_pipeline(local_path, MODEL_SUBDIR)
-
-    pipeline_root = Path(local_path)
-    subdir_path = pipeline_root / MODEL_SUBDIR
-    if subdir_path.is_dir():
-        pipeline_root = subdir_path
-
-    _pipeline = FluxOnnxPipeline.from_pretrained(str(pipeline_root), provider=_provider, token=token)
-    return _pipeline
+_flux_engine: FluxTRTEngine | None = None
+_provider = "TensorRT"
+_model_id = os.getenv("FLUX_MODEL_ID", "black-forest-labs/FLUX.1-dev-onnx")
+_model_cache = os.getenv("FLUX_MODEL_DIR", "/models/flux-fp4")
 
 
 def _encode_image(image: Image.Image | bytes) -> dict:
@@ -140,53 +64,60 @@ def _encode_image(image: Image.Image | bytes) -> dict:
     }
 
 
+def _ensure_engine() -> FluxTRTEngine:
+    global _flux_engine
+    if _flux_engine is None:
+        _flux_engine = FluxTRTEngine(FLUX_TRT_ENGINE_PATH)
+    return _flux_engine
+
+
 @app.on_event("startup")
 async def _load_model_on_startup() -> None:
-    token = _resolve_token(None)
     try:
-        _ensure_pipeline(token)
-        logger.info("FLUX pipeline loaded from %s", MODEL_ID)
+        _ensure_engine()
+        logger.info("FLUX TensorRT engine loaded from %s", FLUX_TRT_ENGINE_PATH)
     except Exception as exc:  # pragma: no cover - service startup diagnostics
-        logger.exception("Failed to load FLUX pipeline at startup: %s", exc)
+        logger.exception("Failed to load FLUX TensorRT engine at startup: %s", exc)
         raise
 
 
 @app.get("/health", response_model=HealthResponse)
 def healthcheck():
-    provider = _provider or "uninitialized"
-    return HealthResponse(status="ok" if _pipeline is not None else "loading", provider=provider, model=MODEL_ID, cache_path=MODEL_CACHE)
+    status = "ok" if _flux_engine is not None else "loading"
+    return HealthResponse(status=status, provider=_provider, model=_model_id, cache_path=_model_cache)
 
 
 @app.post("/generate_image")
 async def generate_image(request: GenerateImageRequest):
-    token = _resolve_token(request.hf_api_key)
     try:
-        pipeline = _ensure_pipeline(token)
+        flux_engine = _ensure_engine()
     except Exception as exc:
-        logger.exception("Pipeline initialization failed")
+        logger.exception("Engine initialization failed")
         raise HTTPException(status_code=500, detail=str(exc))
 
     generator = np.random.RandomState(request.seed) if request.seed is not None else None
+    if generator is not None:
+        np.random.seed(request.seed)
 
     try:
-        image = pipeline(
+        image = flux_engine.generate(
             prompt=request.prompt,
             negative_prompt=request.negative_prompt,
-            num_inference_steps=request.steps,
             width=request.width,
             height=request.height,
-            generator=generator,
+            steps=request.steps,
             guidance_scale=request.guidance_scale,
-        ).images[0]
+            generator=generator,
+        )
     except Exception as exc:  # pragma: no cover - runtime inference errors
-        logger.exception("FLUX inference failed")
-        raise HTTPException(status_code=500, detail=f"FLUX inference failed: {exc}")
+        logger.exception("FLUX TensorRT inference failed")
+        raise HTTPException(status_code=500, detail=f"FLUX TensorRT inference failed: {exc}")
 
     response = _encode_image(image)
     response.update(
         {
             "prompt": request.prompt,
-            "model": MODEL_ID,
+            "model": _model_id,
             "provider": _provider,
         }
     )

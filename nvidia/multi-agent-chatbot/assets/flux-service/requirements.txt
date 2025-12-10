@@ -8,6 +8,7 @@ huggingface-hub>=0.27.0
 pillow>=11.0.0
 pydantic
 numpy
-onnxruntime-gpu>=1.19.2
+tensorrt
+pycuda
 sentencepiece
 bitsandbytes
