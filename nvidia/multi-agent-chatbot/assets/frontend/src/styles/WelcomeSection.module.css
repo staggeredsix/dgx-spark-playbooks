@@ -93,10 +93,22 @@
   animation-delay: 0.7s;
 }
 
+.agentCard.animate5 {
+  animation: fadeInUp 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  animation-delay: 0.8s;
+}
+
+.agentCard.animate6 {
+  animation: fadeInUp 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  animation-delay: 0.9s;
+}
+
 .agentCard.animate1:hover,
-.agentCard.animate2:hover, 
+.agentCard.animate2:hover,
 .agentCard.animate3:hover,
-.agentCard.animate4:hover {
+.agentCard.animate4:hover,
+.agentCard.animate5:hover,
+.agentCard.animate6:hover {
   transform: translateY(-4px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   border-color: rgba(118, 185, 0, 0.3);

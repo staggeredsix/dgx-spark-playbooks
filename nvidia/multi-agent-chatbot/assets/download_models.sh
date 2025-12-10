@@ -28,6 +28,9 @@ HF_TOKEN="${HF_TOKEN:-${HUGGINGFACEHUB_API_TOKEN:-}}"
 
 WAN_T2V_MODEL="${WAN_T2V_MODEL:-Wan-AI/Wan2.2-T2V-A14B}"
 WAN_T2V_MODEL_DIR="${WAN_T2V_MODEL_DIR:-wan2.2-t2v-a14b}"
+WAN_T2V_GGUF_REPO="${WAN_T2V_GGUF_REPO:-QuantStack/Wan2.2-T2V-A14B-GGUF}"
+WAN_T2V_GGUF_FILE="${WAN_T2V_GGUF_FILE:-HighNoise/Wan2.2-T2V-A14B-HighNoise-Q4_0.gguf}"
+WAN_T2V_GGUF_DIR="${WAN_T2V_GGUF_DIR:-wan2.2-t2v-a14b-gguf}"
 
 MODELS=(
   "gpt-oss:120b"
@@ -143,6 +146,40 @@ print(f"Wan2.2 T2V model ready at: {path}")
 PY
 }
 
+download_wan_t2v_gguf_model() {
+  ensure_huggingface_hub
+
+  if [[ -z "${HF_TOKEN}" ]]; then
+    echo "No HF_TOKEN or HUGGINGFACEHUB_API_TOKEN provided; skipping Wan2.2 T2V GGUF download."
+    return
+  fi
+
+  echo "Downloading Wan2.2 T2V GGUF model ${WAN_T2V_GGUF_REPO}:${WAN_T2V_GGUF_FILE} using Hugging Face Hub..."
+  WAN_T2V_GGUF_REPO="${WAN_T2V_GGUF_REPO}" \
+  WAN_T2V_GGUF_FILE="${WAN_T2V_GGUF_FILE}" \
+  WAN_T2V_GGUF_DIR="${WAN_T2V_GGUF_DIR}" \
+  HF_TOKEN="${HF_TOKEN}" \
+  python - <<'PY'
+import os
+from huggingface_hub import snapshot_download
+
+repo_id = os.environ.get("WAN_T2V_GGUF_REPO", "QuantStack/Wan2.2-T2V-A14B-GGUF")
+file_pattern = os.environ.get("WAN_T2V_GGUF_FILE", "HighNoise/Wan2.2-T2V-A14B-HighNoise-Q4_0.gguf")
+token = os.environ.get("HF_TOKEN")
+local_dir = os.environ.get("WAN_T2V_GGUF_DIR") or os.environ.get("HUGGINGFACE_HUB_CACHE") or "wan2.2-t2v-a14b-gguf"
+
+path = snapshot_download(
+    repo_id=repo_id,
+    repo_type="model",
+    token=token,
+    local_dir=local_dir,
+    local_dir_use_symlinks=False,
+    allow_patterns=[file_pattern],
+)
+print(f"Wan2.2 T2V GGUF model ready at: {path}")
+PY
+}
+
 pull_ollama_models
 
 echo "Downloading FLUX FP4 pipeline..."
@@ -150,5 +187,8 @@ download_flux_model
 
 echo "Downloading Wan2.2 Text-to-Video model..."
 download_wan_t2v_model
+
+echo "Downloading Wan2.2 GGUF model..."
+download_wan_t2v_gguf_model
 
 echo "All models downloaded into their respective caches."
