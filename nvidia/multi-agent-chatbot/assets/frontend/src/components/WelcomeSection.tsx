@@ -22,8 +22,11 @@ interface WelcomeSectionProps {
 
 export default function WelcomeSection({ setQuery }: WelcomeSectionProps) {
   const promptTemplates = {
-    rag: "What is the Blackwell GB202 GPU according the whitepaper document i uploaded?",
-    image: "Can you analyze the graphs in this image and tell me any surprising stats? https://menlovc.com/wp-content/uploads/2025/06/5-parents_power_users-062425.png",
+    rag: "What is the Blackwell GB202 GPU according to the whitepaper document I uploaded?",
+    imageGen:
+      "Generate an Image: Create a cartoon image of a squirrel holding an elephant that is holding a weasel that is holding a beetle that is holding an ant that is holding a cupcake.",
+    videoGen:
+      "Generate a video: Large robot throwing a a smaller robot that is carrying an even smaller robot that is wearing a dog costume.",
     code: `Can you generate code to develop a responsive personal website for my freelance AI dev business based on my personal brand palette?
 
 My palette is:
@@ -31,8 +34,7 @@ My palette is:
 #283618
 #FEFAE0
 #DDA15E
-#BC6C25`,
-    chat: "Hey Spark! Can you draft an email asking a product manager in distributed systems to a coffee chat?"
+#BC6C25`
   };
 
   const handleCardClick = (promptKey: keyof typeof promptTemplates) => {
@@ -58,22 +60,36 @@ My palette is:
           <h3 className={styles.agentTitle}>Search Documents</h3>
           <p className={styles.agentSubtitle}>RAG Agent</p>
         </div>
-        <div 
+        <div
           className={`${styles.agentCard} ${styles.animate2}`}
-          onClick={() => handleCardClick('image')}
+          onClick={() => handleCardClick('imageGen')}
         >
           <div className={styles.agentIcon}>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="24" height="24">
-              <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
-              <circle cx="9" cy="9" r="2"/>
-              <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
+              <path d="M4 5h16v14H4z" />
+              <path d="m7 14 3-4 2 3 3-5 2 3" />
+              <circle cx="9" cy="8" r="1.25" />
             </svg>
           </div>
-          <h3 className={styles.agentTitle}>Image Processor</h3>
-          <p className={styles.agentSubtitle}>Image Understanding Agent</p>
+          <h3 className={styles.agentTitle}>Generate an Image</h3>
+          <p className={styles.agentSubtitle}>FLUX image creation prompt</p>
         </div>
-        <div 
+        <div
           className={`${styles.agentCard} ${styles.animate3}`}
+          onClick={() => handleCardClick('videoGen')}
+        >
+          <div className={styles.agentIcon}>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="24" height="24">
+              <rect x="2" y="5" width="15" height="14" rx="2" ry="2" />
+              <polygon points="17 8 22 6 22 18 17 16 17 8" />
+              <path d="M6 10h5l-2 3 2 3H6" />
+            </svg>
+          </div>
+          <h3 className={styles.agentTitle}>Generate a Video</h3>
+          <p className={styles.agentSubtitle}>Wan2.2 text-to-video</p>
+        </div>
+        <div
+          className={`${styles.agentCard} ${styles.animate4}`}
           onClick={() => handleCardClick('code')}
         >
           <div className={styles.agentIcon}>
@@ -84,18 +100,6 @@ My palette is:
           </div>
           <h3 className={styles.agentTitle}>Code Generation</h3>
           <p className={styles.agentSubtitle}>Coding Agent</p>
-        </div>
-        <div 
-          className={`${styles.agentCard} ${styles.animate4}`}
-          onClick={() => handleCardClick('chat')}
-        >
-          <div className={styles.agentIcon}>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="24" height="24">
-              <path d="m3 21 1.9-5.7a8.5 8.5 0 1 1 3.8 3.8z"/>
-            </svg>
-          </div>
-          <h3 className={styles.agentTitle}>Chat</h3>
-          <p className={styles.agentSubtitle}>Local LLM</p>
         </div>
       </div>
     </div>

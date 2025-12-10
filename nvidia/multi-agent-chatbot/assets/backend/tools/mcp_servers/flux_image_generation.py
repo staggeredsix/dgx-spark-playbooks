@@ -14,28 +14,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-"""MCP server exposing FLUX image generation via Hugging Face Hub."""
+"""MCP server proxying FLUX image generation through the dedicated service."""
 
 from __future__ import annotations
 
-import asyncio
-import base64
-import io
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
-import numpy as np
-import onnxruntime as ort
-
-try:  # Flux ONNX is only available in more recent diffusers versions
-    from diffusers import FluxOnnxPipeline
-except ImportError:  # pragma: no cover - depends on installed diffusers version
-    FluxOnnxPipeline = None
-from huggingface_hub import snapshot_download
+import requests
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
-from PIL import Image
 
 import sys
 sys.path.append(str(Path(__file__).resolve().parents[2]))
@@ -55,6 +44,10 @@ def _resolve_hf_token(overrides: Optional[str] = None) -> Optional[str]:
     return overrides or config_manager.get_hf_api_key() or os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
 
 
+def _resolve_service_url() -> str:
+    return os.getenv("FLUX_SERVICE_URL", "http://flux-service:8080")
+
+
 class FluxImageRequest(BaseModel):
     prompt: str = Field(..., description="Detailed prompt describing the desired image.")
     negative_prompt: Optional[str] = Field(
@@ -66,6 +59,10 @@ class FluxImageRequest(BaseModel):
         None,
         description="Optional Hugging Face access token. Defaults to the configured API key or HF_TOKEN/HUGGINGFACEHUB_API_TOKEN",
     )
+    width: Optional[int] = Field(None, description="Optional image width override for the FLUX service.")
+    height: Optional[int] = Field(None, description="Optional image height override for the FLUX service.")
+    steps: Optional[int] = Field(None, description="Optional inference steps override for the FLUX service.")
+    guidance_scale: Optional[float] = Field(None, description="Optional guidance scale for the FLUX service.")
 
 
 @mcp.tool()
@@ -75,89 +72,50 @@ async def generate_image(
     seed: Optional[int] = None,
     model: Optional[str] = None,
     hf_api_key: Optional[str] = None,
+    width: Optional[int] = None,
+    height: Optional[int] = None,
+    steps: Optional[int] = None,
+    guidance_scale: Optional[float] = None,
 ):
-    """Generate an image with the FLUX ONNX pipeline hosted on Hugging Face."""
+    """Generate an image with the FLUX pipeline hosted by the flux-service container."""
 
     if not config_manager.is_flux_enabled():
         raise ValueError("FLUX image generation is disabled. Enable it in advanced settings before using this tool.")
 
     resolved_model = _resolve_model(model)
     token = _resolve_hf_token(hf_api_key)
+    payload: Dict[str, Any] = {
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+        "seed": seed,
+        "model": resolved_model,
+        "hf_api_key": token,
+        "width": width,
+        "height": height,
+        "steps": steps,
+        "guidance_scale": guidance_scale,
+    }
 
-    def _load_pipeline() -> FluxOnnxPipeline:
-        if FluxOnnxPipeline is None:
-            raise ImportError(
-                "FluxOnnxPipeline is unavailable in the installed diffusers package. "
-                "Install a diffusers version that includes ONNX FLUX support (e.g., diffusers[onnx]>=0.32) to enable this tool."
-            )
+    # Strip None values to let the service apply defaults
+    payload = {key: value for key, value in payload.items() if value is not None}
 
-        cache_dir = (
-            os.getenv("FLUX_MODEL_DIR")
-            or os.getenv("HUGGINGFACE_HUB_CACHE")
-            or "flux-fp4"
-        )
+    response = requests.post(
+        f"{_resolve_service_url().rstrip('/')}/generate_image",
+        json=payload,
+        timeout=int(os.getenv("FLUX_SERVICE_TIMEOUT", "600")),
+    )
 
-        try:
-            local_path = snapshot_download(
-                repo_id=resolved_model,
-                repo_type="model",
-                token=token,
-                local_dir=cache_dir,
-                local_dir_use_symlinks=False,
-                local_files_only=True,
-            )
-        except Exception:
-            if not token:
-                raise ValueError(
-                    "FLUX model is not available in the local cache. "
-                    "Download it via /download/flux or provide an HF token in settings or the HF_TOKEN/HUGGINGFACEHUB_API_TOKEN environment variable."
-                )
+    try:
+        response.raise_for_status()
+    except Exception as exc:
+        raise RuntimeError(f"FLUX service returned an error: {response.text}") from exc
 
-            local_path = snapshot_download(
-                repo_id=resolved_model,
-                repo_type="model",
-                token=token,
-                local_dir=cache_dir,
-                local_dir_use_symlinks=False,
-            )
+    data = response.json()
+    expected_keys = {"image_markdown", "image_base64"}
+    if not expected_keys.issubset(data):
+        raise ValueError("FLUX service response missing expected image payload.")
 
-        available_providers = ort.get_available_providers()
-        provider = "CUDAExecutionProvider" if "CUDAExecutionProvider" in available_providers else "CPUExecutionProvider"
-
-        return FluxOnnxPipeline.from_pretrained(local_path, provider=provider, token=token)
-
-    def _run_inference():
-        try:
-            pipeline = _load_pipeline()
-        except Exception as exc:  # pragma: no cover - defensive logging path
-            raise RuntimeError(f"Failed to initialize FLUX pipeline: {exc}") from exc
-
-        generator = np.random.RandomState(seed) if seed is not None else None
-        image = pipeline(
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            num_inference_steps=4,
-            generator=generator,
-        ).images[0]
-
-        if isinstance(image, bytes):
-            image_bytes = image
-        else:
-            buffer = io.BytesIO()
-            image.save(buffer, format="PNG")
-            image_bytes = buffer.getvalue()
-
-        encoded = base64.b64encode(image_bytes).decode("utf-8")
-        data_uri = f"data:image/png;base64,{encoded}"
-
-        return {
-            "image_markdown": f"![FLUX generated image]({data_uri})",
-            "image_base64": data_uri,
-            "prompt": prompt,
-            "model": resolved_model,
-        }
-
-    return await asyncio.to_thread(_run_inference)
+    return data
 
 
 if __name__ == "__main__":

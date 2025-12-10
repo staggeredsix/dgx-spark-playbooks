@@ -42,12 +42,11 @@ class ConfigManager:
     
     def _ensure_config_exists(self) -> None:
         """Ensure config.json exists, creating it with default values if not."""
-        models = []
-        models = os.getenv("MODELS", "")
-
-        if models:
-            models = [model.strip() for model in models.split(",") if model.strip()]
+        models_env = os.getenv("MODELS", "")
+        if models_env:
+            models = [model.strip() for model in models_env.split(",") if model.strip()]
         else:
+            models = []
             logger.warning("MODELS environment variable not set, using empty models list")
 
         if not os.path.exists(self.config_path):
@@ -128,11 +127,9 @@ class ConfigManager:
             except Exception as e:
                 logger.error(f"Error reading config: {e}")
                 if self.config is None:
-                    models = []
-                    models = os.getenv("MODELS", "")
-                    if models:
-                        models = [model.strip() for model in models.split(",") if model.strip()]
-                    
+                    models_env = os.getenv("MODELS", "")
+                    models = [model.strip() for model in models_env.split(",") if model.strip()] if models_env else []
+
                     self.config = ChatConfig(
                         sources=[],
                         models=models,

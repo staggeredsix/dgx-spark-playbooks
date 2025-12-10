@@ -25,6 +25,8 @@ services:
     volumes:
       - ./backend:/app
     depends_on:
+      - flux-service
+      - video-service
       - postgres
       - qdrant
       - ollama
@@ -40,6 +42,8 @@ services:
       - CODE_MODEL=qwen3-coder:30b
       - VISION_MODEL=ministral-3:14b
       - MODELS=gpt-oss:120b,ministral-3:14b,qwen3-coder:30b
+      - FLUX_SERVICE_URL=http://flux-service:8080
+      - VIDEO_SERVICE_URL=http://video-service:8081
 
   ollama:
     image: ollama/ollama:0.13.2-rc0
@@ -74,6 +78,42 @@ services:
       - BACKEND_PROTOCOL=${BACKEND_PROTOCOL:-http}
       - BACKEND_HOST=${BACKEND_HOST:-backend}
       - BACKEND_PORT=${BACKEND_PORT:-8000}
+
+
+  flux-service:
+    container_name: flux-service
+    build:
+      context: ./flux-service
+      dockerfile: Dockerfile
+    environment:
+      - FLUX_MODEL_ID=${FLUX_MODEL_ID:-black-forest-labs/FLUX.1-dev-onnx/transformer.opt/fp4}
+      - FLUX_MODEL_DIR=/models/flux-fp4
+      - HUGGINGFACEHUB_API_TOKEN=${HUGGINGFACEHUB_API_TOKEN}
+      - HF_TOKEN=${HF_TOKEN}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./flux-fp4:/models/flux-fp4
+      - hf-cache:/models/hf_cache
+    restart: unless-stopped
+    gpus: all
+
+  video-service:
+    container_name: video-service
+    build:
+      context: ./video-service
+      dockerfile: Dockerfile
+    environment:
+      - WAN_MODEL_DIR=/models/wan-videos
+      - WAN_REPO_ID=QuantStack/Wan2.2-T2V-A14B-GGUF
+      - WAN_FILENAME=Wan2.2-T2V-A14B-HighNoise-Q4_K_M.gguf
+      - HUGGINGFACEHUB_API_TOKEN=${HUGGINGFACEHUB_API_TOKEN}
+      - HF_TOKEN=${HF_TOKEN}
+    ports:
+      - "8081:8081"
+    volumes:
+      - wan-cache:/models/wan-videos
+    restart: unless-stopped
 
 
   postgres:
@@ -111,6 +151,8 @@ services:
 volumes:
   postgres_data:
   ollama-data:
+  hf-cache:
+  wan-cache:
 
 networks:
   default:
