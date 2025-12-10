@@ -19,6 +19,8 @@ logger = logging.getLogger("flux-service")
 logging.basicConfig(level=logging.INFO)
 
 FLUX_MODEL_ID = os.environ.get("FLUX_MODEL_ID", "black-forest-labs/FLUX.1-schnell")
+FLUX_MODEL_DIR = os.environ.get("FLUX_MODEL_DIR")
+FLUX_MODEL_SUBDIR = os.environ.get("FLUX_MODEL_SUBDIR")
 
 app = FastAPI(title="FLUX Image Service", version="1.0")
 
@@ -63,12 +65,30 @@ def _encode_image(image: Image.Image | bytes) -> dict:
     }
 
 
+def _resolve_model_id() -> str:
+    """Determine whether to load from a local directory or remote repo."""
+
+    if FLUX_MODEL_DIR:
+        candidate = (
+            os.path.join(FLUX_MODEL_DIR, FLUX_MODEL_SUBDIR)
+            if FLUX_MODEL_SUBDIR
+            else FLUX_MODEL_DIR
+        )
+        logger.info("Using local FLUX model path: %s", candidate)
+        return candidate
+
+    logger.info("Using remote FLUX model repo: %s", FLUX_MODEL_ID)
+    return FLUX_MODEL_ID
+
+
 def _ensure_pipeline() -> FluxPipeline:
     global _flux_pipeline
     if _flux_pipeline is None:
-        logger.info("Loading FluxPipeline model %s", FLUX_MODEL_ID)
+        global _model_id
+        _model_id = _resolve_model_id()
+        logger.info("Loading FluxPipeline model %s", _model_id)
         pipeline = FluxPipeline.from_pretrained(
-            FLUX_MODEL_ID,
+            _model_id,
             torch_dtype=torch.bfloat16,
         )
         pipeline.to("cuda")
