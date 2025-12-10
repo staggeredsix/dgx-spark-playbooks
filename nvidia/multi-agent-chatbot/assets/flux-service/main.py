@@ -7,6 +7,7 @@ import base64
 import io
 import logging
 import os
+import time
 from typing import Optional
 
 import torch
@@ -75,7 +76,14 @@ def _resolve_model_id() -> str:
             if FLUX_MODEL_SUBDIR
             else FLUX_MODEL_DIR
         )
-        logger.info("Using local FLUX model path: %s", candidate)
+        if not os.path.exists(candidate):
+            logger.warning(
+                "Configured FLUX_MODEL_DIR does not exist (%s); the service will attempt to download to %s",
+                candidate,
+                _model_cache,
+            )
+        else:
+            logger.info("Using local FLUX model path: %s", candidate)
         return candidate
 
     logger.info("Using remote FLUX model repo: %s", FLUX_MODEL_ID)
@@ -87,15 +95,22 @@ def _ensure_pipeline(token_override: str | None = None) -> FluxPipeline:
     if _flux_pipeline is None:
         global _model_id
         _model_id = _resolve_model_id()
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA GPU is required for the FLUX pipeline but was not detected.")
         logger.info("Loading FluxPipeline model %s", _model_id)
+        start = time.perf_counter()
         hf_token = token_override or HF_TOKEN
         pipeline = FluxPipeline.from_pretrained(
             _model_id,
             torch_dtype=torch.bfloat16,
             token=hf_token,
+            cache_dir=_model_cache,
+            local_files_only=bool(FLUX_MODEL_DIR),
         )
         pipeline.to("cuda")
         _flux_pipeline = pipeline
+        elapsed = time.perf_counter() - start
+        logger.info("FLUX pipeline ready (loaded in %.2f seconds)", elapsed)
     return _flux_pipeline
 
 

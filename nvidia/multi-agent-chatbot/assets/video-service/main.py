@@ -20,6 +20,8 @@ WAN_REPO_ID = os.getenv("WAN_REPO_ID", "QuantStack/Wan2.2-T2V-A14B-GGUF")
 WAN_FILENAME = os.getenv("WAN_FILENAME", "Wan2.2-T2V-A14B-HighNoise-Q4_K_M.gguf")
 MODEL_CACHE = os.getenv("WAN_MODEL_DIR", "/models/wan-videos")
 WAN_PRECACHE = os.getenv("WAN_PRECACHE", "false").lower() == "true"
+WAN_PROVIDER = os.getenv("WAN_PROVIDER", "hf-inference")
+WAN_INFERENCE_ENDPOINT = os.getenv("WAN_INFERENCE_ENDPOINT")
 DEFAULT_HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
 
 app = FastAPI(title="Wan2.2 Video Service", version="1.0")
@@ -33,6 +35,7 @@ class GenerateVideoRequest(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     model: str
+    provider: str
     cache_path: str
 
 
@@ -106,7 +109,12 @@ async def _warm_cache() -> None:
 @app.get("/health", response_model=HealthResponse)
 def healthcheck():
     status = "ok" if os.path.isdir(MODEL_CACHE) else "missing"
-    return HealthResponse(status=status, model=WAN_FILENAME, cache_path=MODEL_CACHE)
+    return HealthResponse(
+        status=status,
+        model=WAN_FILENAME,
+        provider=WAN_PROVIDER,
+        cache_path=MODEL_CACHE,
+    )
 
 
 @app.post("/generate_video")
@@ -116,11 +124,23 @@ async def generate_video(request: GenerateVideoRequest):
         raise HTTPException(status_code=400, detail="A Hugging Face token is required for Wan2.2 video generation.")
 
     def _run_inference() -> dict:
-        client = InferenceClient(model=WAN_REPO_ID, token=token)
+        client = InferenceClient(
+            model=WAN_REPO_ID,
+            token=token,
+            provider=WAN_PROVIDER,
+            endpoint=WAN_INFERENCE_ENDPOINT,
+        )
         raw_video = client.text_to_video(request.prompt)
         video_bytes = _coalesce_video_bytes(raw_video)
         payload = _serialize_video_bytes(video_bytes)
-        payload.update({"prompt": request.prompt, "model": WAN_FILENAME, "cache_path": MODEL_CACHE})
+        payload.update(
+            {
+                "prompt": request.prompt,
+                "model": WAN_FILENAME,
+                "provider": WAN_PROVIDER,
+                "cache_path": MODEL_CACHE,
+            }
+        )
         return payload
 
     try:
