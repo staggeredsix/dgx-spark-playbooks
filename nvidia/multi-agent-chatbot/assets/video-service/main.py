@@ -10,7 +10,7 @@ from collections.abc import Iterable
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
-from huggingface_hub import InferenceClient, snapshot_download
+from huggingface_hub import InferenceClient
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("wan-video-service")
@@ -19,6 +19,7 @@ logging.basicConfig(level=logging.INFO)
 WAN_REPO_ID = os.getenv("WAN_REPO_ID", "QuantStack/Wan2.2-T2V-A14B-GGUF")
 WAN_FILENAME = os.getenv("WAN_FILENAME", "Wan2.2-T2V-A14B-HighNoise-Q4_K_M.gguf")
 MODEL_CACHE = os.getenv("WAN_MODEL_DIR", "/models/wan-videos")
+WAN_PRECACHE = os.getenv("WAN_PRECACHE", "false").lower() == "true"
 DEFAULT_HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
 
 app = FastAPI(title="Wan2.2 Video Service", version="1.0")
@@ -39,19 +40,35 @@ def _resolve_hf_token(override: Optional[str]) -> Optional[str]:
     return override or DEFAULT_HF_TOKEN
 
 
-def _ensure_model_available(token: Optional[str]) -> str:
-    local_path = snapshot_download(
-        repo_id=WAN_REPO_ID,
-        repo_type="model",
-        token=token,
-        allow_patterns=[WAN_FILENAME],
-        local_dir=MODEL_CACHE,
-        local_dir_use_symlinks=False,
-    )
-    model_path = os.path.join(local_path, WAN_FILENAME)
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"Model weight {WAN_FILENAME} not present in cache")
-    return model_path
+def _maybe_precache_model(token: Optional[str]) -> Optional[str]:
+    if not WAN_PRECACHE:
+        logger.info("Skipping Wan2.2 pre-cache; inference will stream from the Hugging Face Hub.")
+        return None
+
+    if not token:
+        logger.warning(
+            "WAN_PRECACHE is enabled but no Hugging Face token is configured; skipping local download."
+        )
+        return None
+
+    try:
+        from huggingface_hub import snapshot_download
+
+        local_path = snapshot_download(
+            repo_id=WAN_REPO_ID,
+            repo_type="model",
+            token=token,
+            allow_patterns=[WAN_FILENAME],
+            local_dir=MODEL_CACHE,
+            local_dir_use_symlinks=False,
+        )
+        model_path = os.path.join(local_path, WAN_FILENAME)
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model weight {WAN_FILENAME} not present in cache")
+        return model_path
+    except Exception as exc:  # pragma: no cover - warmup diagnostics
+        logger.warning("Failed to pre-cache Wan2.2 weight: %s", exc)
+        return None
 
 
 def _coalesce_video_bytes(result: bytes | Iterable[bytes]) -> bytes:
@@ -81,14 +98,9 @@ def _serialize_video_bytes(video_bytes: bytes) -> dict:
 @app.on_event("startup")
 async def _warm_cache() -> None:
     token = _resolve_hf_token(None)
-    if not token:
-        logger.warning("No Hugging Face token configured; assuming weights are pre-cached at %s", MODEL_CACHE)
-    try:
-        path = _ensure_model_available(token)
-        logger.info("Wan2.2 weight available at %s", path)
-    except Exception as exc:  # pragma: no cover - startup diagnostics
-        logger.exception("Failed to ensure Wan2.2 weight is available: %s", exc)
-        raise
+    cache_path = _maybe_precache_model(token)
+    if cache_path:
+        logger.info("Wan2.2 weight available at %s", cache_path)
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -103,18 +115,12 @@ async def generate_video(request: GenerateVideoRequest):
     if not token:
         raise HTTPException(status_code=400, detail="A Hugging Face token is required for Wan2.2 video generation.")
 
-    try:
-        model_path = _ensure_model_available(token)
-    except Exception as exc:
-        logger.exception("Model availability check failed")
-        raise HTTPException(status_code=500, detail=str(exc))
-
     def _run_inference() -> dict:
         client = InferenceClient(model=WAN_REPO_ID, token=token)
         raw_video = client.text_to_video(request.prompt)
         video_bytes = _coalesce_video_bytes(raw_video)
         payload = _serialize_video_bytes(video_bytes)
-        payload.update({"prompt": request.prompt, "model": WAN_FILENAME, "cache_path": model_path})
+        payload.update({"prompt": request.prompt, "model": WAN_FILENAME, "cache_path": MODEL_CACHE})
         return payload
 
     try:
