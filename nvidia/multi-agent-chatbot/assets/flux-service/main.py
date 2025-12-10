@@ -7,6 +7,7 @@ import base64
 import io
 import logging
 import os
+import time
 from typing import Optional
 
 import torch
@@ -35,6 +36,7 @@ class GenerateImageRequest(BaseModel):
     seed: Optional[int] = Field(None, description="Optional RNG seed for reproducibility")
     guidance_scale: float = Field(1.0, ge=0.0, description="Guidance scale parameter")
     hf_api_key: Optional[str] = Field(None, description="Optional Hugging Face token override")
+    model: Optional[str] = Field(None, description="Optional model override when multiple variants are available")
 
 
 class HealthResponse(BaseModel):
@@ -55,12 +57,15 @@ def _encode_image(image: Image.Image | bytes) -> dict:
         image_bytes = bytes(image)
     else:
         buffer = io.BytesIO()
+        if image.mode != "RGB":
+            image = image.convert("RGB")
         image.save(buffer, format="PNG")
         image_bytes = buffer.getvalue()
 
     b64 = base64.b64encode(image_bytes).decode("utf-8")
     data_uri = f"data:image/png;base64,{b64}"
     return {
+        "image": data_uri,
         "image_base64": data_uri,
         "image_markdown": f"![FLUX generated image]({data_uri})",
     }
@@ -75,7 +80,14 @@ def _resolve_model_id() -> str:
             if FLUX_MODEL_SUBDIR
             else FLUX_MODEL_DIR
         )
-        logger.info("Using local FLUX model path: %s", candidate)
+        if not os.path.exists(candidate):
+            logger.warning(
+                "Configured FLUX_MODEL_DIR does not exist (%s); the service will attempt to download to %s",
+                candidate,
+                _model_cache,
+            )
+        else:
+            logger.info("Using local FLUX model path: %s", candidate)
         return candidate
 
     logger.info("Using remote FLUX model repo: %s", FLUX_MODEL_ID)
@@ -87,15 +99,22 @@ def _ensure_pipeline(token_override: str | None = None) -> FluxPipeline:
     if _flux_pipeline is None:
         global _model_id
         _model_id = _resolve_model_id()
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA GPU is required for the FLUX pipeline but was not detected.")
         logger.info("Loading FluxPipeline model %s", _model_id)
+        start = time.perf_counter()
         hf_token = token_override or HF_TOKEN
         pipeline = FluxPipeline.from_pretrained(
             _model_id,
             torch_dtype=torch.bfloat16,
             token=hf_token,
+            cache_dir=_model_cache,
+            local_files_only=bool(FLUX_MODEL_DIR),
         )
         pipeline.to("cuda")
         _flux_pipeline = pipeline
+        elapsed = time.perf_counter() - start
+        logger.info("FLUX pipeline ready (loaded in %.2f seconds)", elapsed)
     return _flux_pipeline
 
 
@@ -124,12 +143,20 @@ async def generate_image(request: GenerateImageRequest):
         logger.exception("Pipeline initialization failed")
         raise HTTPException(status_code=500, detail=str(exc))
 
+    if request.model and request.model != _model_id:
+        logger.warning(
+            "Requested model %s does not match the loaded model %s; using the loaded model. Restart the service to switch models.",
+            request.model,
+            _model_id,
+        )
+
     generator = None
     if request.seed is not None:
         generator = torch.Generator(device="cuda")
         generator.manual_seed(request.seed)
 
     try:
+        start = time.perf_counter()
         output = pipeline(
             prompt=request.prompt,
             negative_prompt=request.negative_prompt,
@@ -140,6 +167,19 @@ async def generate_image(request: GenerateImageRequest):
             generator=generator,
         )
         image = output.images[0]
+        elapsed = time.perf_counter() - start
+        logger.info(
+            "Generated FLUX image (%sx%s) in %.2fs for provider=%s model=%s",
+            image.width,
+            image.height,
+            elapsed,
+            _provider,
+            _model_id,
+        )
+        if image.width < 64 or image.height < 64:
+            raise RuntimeError(
+                f"Generated image is unexpectedly small ({image.width}x{image.height}); check model weights and GPU availability."
+            )
     except Exception as exc:  # pragma: no cover - runtime inference errors
         logger.exception("FLUX pipeline inference failed")
         raise HTTPException(status_code=500, detail=f"FLUX pipeline inference failed: {exc}")

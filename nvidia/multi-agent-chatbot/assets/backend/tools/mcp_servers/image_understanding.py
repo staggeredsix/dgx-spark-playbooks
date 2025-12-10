@@ -28,7 +28,7 @@ import json
 import sys
 from pathlib import Path
 import time
-from typing import Dict, List
+from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
 import requests
@@ -50,6 +50,7 @@ mcp = FastMCP("image-understanding-server")
 
 CONFIG_PATH = project_root / "config.json"
 config_manager = ConfigManager(str(CONFIG_PATH))
+VLM_VIDEO_CHUNK_SIZE = int(os.getenv("VLM_VIDEO_CHUNK_SIZE", "60"))
 
 
 def _get_model_name() -> str:
@@ -299,9 +300,11 @@ def _stage_video_frames(frames: list[dict]) -> list[dict]:
     return staged_frames
 
 
-def _chunk_frames(frames: list[dict], max_frames: int = 20) -> list[list[dict]]:
+def _chunk_frames(frames: list[dict], max_frames: Optional[int] = None) -> list[list[dict]]:
     """Split a list of frames into smaller batches to avoid oversized prompts."""
 
+    if max_frames is None:
+        max_frames = VLM_VIDEO_CHUNK_SIZE
     if max_frames <= 0:
         return [frames]
 
@@ -463,7 +466,18 @@ def explain_video(query: str, video_frames: str | list[str | dict] | dict):
             _ensure_vision_model_ready()
 
             if _is_ollama_endpoint():
-                chunked_frames = _chunk_frames(staged_frames)
+                chunked_frames = _chunk_frames(staged_frames, max_frames=VLM_VIDEO_CHUNK_SIZE)
+                if len(chunked_frames) > 1:
+                    logger.info(
+                        {
+                            "message": "Chunking video frames for vision request",
+                            "model": model_name,
+                            "base_url": _ollama_root_url(),
+                            "frame_count": len(staged_frames),
+                            "chunks": len(chunked_frames),
+                            "chunk_size": VLM_VIDEO_CHUNK_SIZE,
+                        }
+                    )
                 chunk_responses: list[str] = []
 
                 frame_offset = 0
