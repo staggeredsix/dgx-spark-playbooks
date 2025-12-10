@@ -38,7 +38,7 @@ class ConfigManager:
 
     @property
     def default_flux_model(self) -> str:
-        return "black-forest-labs/FLUX.1-dev-onnx/transformer.opt/fp4"
+        return "black-forest-labs/FLUX.1-schnell"
     
     def _ensure_config_exists(self) -> None:
         """Ensure config.json exists, creating it with default values if not."""
