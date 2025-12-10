@@ -7,6 +7,8 @@ import os
 import sys
 from pathlib import Path
 
+import onnx
+from onnx import external_data_helper
 import tensorrt as trt
 
 DEFAULT_MODEL_DIR = "/models/flux-fp4"
@@ -29,6 +31,42 @@ def _resolve_paths() -> tuple[Path, Path]:
     return onnx_path, engine_path
 
 
+def _verify_external_data(onnx_path: Path) -> None:
+    """Ensure external data referenced by the ONNX graph is readable before parsing."""
+
+    model = onnx.load(onnx_path, load_external_data=False)
+    missing: list[str] = []
+    model_dir = onnx_path.parent
+
+    for tensor in external_data_helper.get_external_data_tensors(model):
+        location = next((kv.value for kv in tensor.external_data if kv.key == "location"), None)
+        if not location:
+            continue
+
+        data_path = model_dir / location
+        if not data_path.exists():
+            missing.append(f"{data_path} (missing)")
+            continue
+
+        if not data_path.is_file():
+            missing.append(f"{data_path} (not a file)")
+            continue
+
+        try:
+            if data_path.stat().st_size == 0:
+                missing.append(f"{data_path} (empty file)")
+        except OSError as exc:  # pragma: no cover - filesystem edge case
+            missing.append(f"{data_path} (stat failed: {exc})")
+
+    if missing:
+        details = "\n".join(missing)
+        raise RuntimeError(
+            "External ONNX data files are unavailable or unreadable. "
+            "Re-download the FLUX model or ensure the files are mounted inside the container.\n"
+            f"Checked paths relative to {model_dir}:\n{details}"
+        )
+
+
 def _build_engine(onnx_path: Path, engine_path: Path) -> None:
     model_dir = onnx_path.parent
     model_file = onnx_path.name
@@ -39,6 +77,8 @@ def _build_engine(onnx_path: Path, engine_path: Path) -> None:
     config = builder.create_builder_config()
     config.max_workspace_size = 4 << 30  # 4 GB
     config.set_flag(trt.BuilderFlag.FP16)
+
+    _verify_external_data(onnx_path)
 
     cwd = os.getcwd()
     os.chdir(model_dir)
