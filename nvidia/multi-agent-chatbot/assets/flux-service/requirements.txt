@@ -1,12 +1,13 @@
-diffusers[torch]>=0.36.0
-transformers>=4.44.0
+diffusers>=0.32.0
+transformers>=4.45.0
 accelerate
 safetensors
 fastapi
 uvicorn[standard]
-huggingface-hub
-pillow
+huggingface-hub>=0.27.0
+pillow>=11.0.0
 pydantic
 numpy
+onnxruntime-gpu>=1.19.2
 sentencepiece
 bitsandbytes

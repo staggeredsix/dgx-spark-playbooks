@@ -23,10 +23,6 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Upgrade pip before installing dependencies
 RUN pip install --upgrade pip
 
-# Core GPU + model dependencies for FLUX
-RUN pip install --no-cache-dir \
-    torch torchvision --index-url https://download.pytorch.org/whl/cu124
-
 COPY requirements.txt /app/requirements.txt
 
 RUN pip install --no-cache-dir -r /app/requirements.txt

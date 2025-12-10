@@ -20,8 +20,14 @@ SCRIPT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
 COMPOSE_FILE="docker-compose-models.yml"
-FLUX_MODEL="${FLUX_MODEL:-black-forest-labs/FLUX.1-dev-onnx/transformer.opt/fp4}"
+
+# Root repo for the FLUX ONNX FP4 model
+FLUX_MODEL_REPO="${FLUX_MODEL_REPO:-black-forest-labs/FLUX.1-dev-onnx}"
+FLUX_MODEL_SUBDIR="${FLUX_MODEL_SUBDIR:-transformer.opt/fp4}"
 HF_TOKEN="${HF_TOKEN:-${HUGGINGFACEHUB_API_TOKEN:-}}"
+
+WAN_T2V_MODEL="${WAN_T2V_MODEL:-Wan-AI/Wan2.2-T2V-A14B}"
+WAN_T2V_MODEL_DIR="${WAN_T2V_MODEL_DIR:-wan2.2-t2v-a14b}"
 
 MODELS=(
   "gpt-oss:120b"
@@ -80,14 +86,51 @@ download_flux_model() {
     return
   fi
 
-  echo "Downloading FLUX model ${FLUX_MODEL} using Hugging Face Hub..."
-  FLUX_MODEL_DIR="${FLUX_MODEL_DIR:-}" HF_TOKEN="${HF_TOKEN}" python - <<'PY'
+  echo "Downloading FLUX FP4 model ${FLUX_MODEL_REPO}/${FLUX_MODEL_SUBDIR} using Hugging Face Hub..."
+  FLUX_MODEL_REPO="${FLUX_MODEL_REPO}" \
+  FLUX_MODEL_SUBDIR="${FLUX_MODEL_SUBDIR}" \
+  FLUX_MODEL_DIR="${FLUX_MODEL_DIR:-}" \
+  HF_TOKEN="${HF_TOKEN}" \
+  python - <<'PY'
 import os
 from huggingface_hub import snapshot_download
 
-model = os.environ.get("FLUX_MODEL", "black-forest-labs/FLUX.1-dev-onnx/transformer.opt/fp4")
+repo_id = os.environ.get("FLUX_MODEL_REPO", "black-forest-labs/FLUX.1-dev-onnx")
+subdir = os.environ.get("FLUX_MODEL_SUBDIR", "transformer.opt/fp4")
 token = os.environ.get("HF_TOKEN")
 local_dir = os.environ.get("FLUX_MODEL_DIR") or os.environ.get("HUGGINGFACE_HUB_CACHE") or "flux-fp4"
+
+path = snapshot_download(
+    repo_id=repo_id,
+    repo_type="model",
+    token=token,
+    local_dir=local_dir,
+    local_dir_use_symlinks=False,
+    allow_patterns=[f"{subdir}/*"],
+)
+print(f"FLUX FP4 model ready at: {path}")
+PY
+}
+
+download_wan_t2v_model() {
+  ensure_huggingface_hub
+
+  if [[ -z "${HF_TOKEN}" ]]; then
+    echo "No HF_TOKEN or HUGGINGFACEHUB_API_TOKEN provided; skipping Wan2.2 T2V download."
+    return
+  fi
+
+  echo "Downloading Wan2.2 T2V model ${WAN_T2V_MODEL} using Hugging Face Hub..."
+  WAN_T2V_MODEL="${WAN_T2V_MODEL}" \
+  WAN_T2V_MODEL_DIR="${WAN_T2V_MODEL_DIR}" \
+  HF_TOKEN="${HF_TOKEN}" \
+  python - <<'PY'
+import os
+from huggingface_hub import snapshot_download
+
+model = os.environ.get("WAN_T2V_MODEL", "Wan-AI/Wan2.2-T2V-A14B")
+token = os.environ.get("HF_TOKEN")
+local_dir = os.environ.get("WAN_T2V_MODEL_DIR") or os.environ.get("HUGGINGFACE_HUB_CACHE") or "wan2.2-t2v-a14b"
 
 path = snapshot_download(
     repo_id=model,
@@ -95,15 +138,17 @@ path = snapshot_download(
     token=token,
     local_dir=local_dir,
     local_dir_use_symlinks=False,
-    allow_patterns=["transformer.opt/fp4/*"],
 )
-print(f"FLUX model ready at: {path}")
+print(f"Wan2.2 T2V model ready at: {path}")
 PY
 }
 
 pull_ollama_models
 
-echo "Downloading FLUX pipeline..."
+echo "Downloading FLUX FP4 pipeline..."
 download_flux_model
+
+echo "Downloading Wan2.2 Text-to-Video model..."
+download_wan_t2v_model
 
 echo "All models downloaded into their respective caches."
