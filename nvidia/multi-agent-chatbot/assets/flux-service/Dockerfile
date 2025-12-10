@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 1993-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-FROM nvcr.io/nvidia/tensorrt:24.04-py3
+FROM nvcr.io/nvidia/tensorrt:25.11-py3
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PIP_EXTRA_INDEX_URL=https://pypi.nvidia.com
