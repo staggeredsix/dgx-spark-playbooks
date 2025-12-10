@@ -20,7 +20,9 @@ WAN_REPO_ID = os.getenv("WAN_REPO_ID", "QuantStack/Wan2.2-T2V-A14B-GGUF")
 WAN_FILENAME = os.getenv("WAN_FILENAME", "Wan2.2-T2V-A14B-HighNoise-Q4_K_M.gguf")
 MODEL_CACHE = os.getenv("WAN_MODEL_DIR", "/models/wan-videos")
 WAN_PRECACHE = os.getenv("WAN_PRECACHE", "false").lower() == "true"
-WAN_PROVIDER = os.getenv("WAN_PROVIDER")
+
+WAN_PROVIDER = os.getenv("WAN_PROVIDER", "hf-inference")
+
 WAN_INFERENCE_ENDPOINT = os.getenv("WAN_INFERENCE_ENDPOINT")
 DEFAULT_HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
 
