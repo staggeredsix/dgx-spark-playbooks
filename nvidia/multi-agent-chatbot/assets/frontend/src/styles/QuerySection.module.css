@@ -1024,3 +1024,28 @@
   color: #fbbf24;
 }
 
+.videoWrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.videoPlayer {
+  width: 100%;
+  max-width: 640px;
+  border-radius: 12px;
+  background: black;
+}
+
+.videoDownload {
+  color: #2563eb;
+  text-decoration: none;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.videoDownload:hover {
+  text-decoration: underline;
+}
+

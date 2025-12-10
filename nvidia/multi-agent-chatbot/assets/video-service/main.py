@@ -93,9 +93,18 @@ def _serialize_video_bytes(video_bytes: bytes) -> dict:
 
     encoded = base64.b64encode(video_bytes).decode("utf-8")
     data_uri = f"data:video/mp4;base64,{encoded}"
-    markdown = f'<video controls width="512" src="{data_uri}">Your browser does not support the video tag.</video>'
+    markdown = " ".join(
+        [
+            f'<video controls width="512" src="{data_uri}">Your browser does not support the video tag.</video>',
+            f'<a href="{data_uri}" download="wan-video.mp4">Download video</a>',
+        ]
+    )
 
-    return {"video_base64": data_uri, "video_markdown": markdown}
+    return {
+        "video_base64": data_uri,
+        "video_markdown": markdown,
+        "video_filename": "wan-video.mp4",
+    }
 
 
 @app.on_event("startup")
@@ -123,15 +132,7 @@ async def generate_video(request: GenerateVideoRequest):
     if not token:
         raise HTTPException(status_code=400, detail="A Hugging Face token is required for Wan2.2 video generation.")
 
-    if not WAN_INFERENCE_ENDPOINT:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "Wan2.2 inference endpoint is not configured. Set WAN_INFERENCE_ENDPOINT to a self-hosted server to enable video generation."
-            ),
-        )
-
-    if "huggingface.co" in WAN_INFERENCE_ENDPOINT:
+    if WAN_INFERENCE_ENDPOINT and "huggingface.co" in WAN_INFERENCE_ENDPOINT:
         raise HTTPException(
             status_code=400,
             detail=(
@@ -140,10 +141,8 @@ async def generate_video(request: GenerateVideoRequest):
         )
 
     def _run_inference() -> dict:
-        client = InferenceClient(
-            token=token,
-            endpoint=WAN_INFERENCE_ENDPOINT,
-        )
+        target = WAN_INFERENCE_ENDPOINT or WAN_REPO_ID
+        client = InferenceClient(model=target, token=token)
         raw_video = client.text_to_video(request.prompt)
         video_bytes = _coalesce_video_bytes(raw_video)
         payload = _serialize_video_bytes(video_bytes)
