@@ -86,24 +86,8 @@ pull_ollama_models() {
 
   wait_for_running
 
-  # The container image doesn't automatically start the Ollama daemon when
-  # invoked with a custom entrypoint, so ensure it is running before pulling
-  # models. If the daemon isn't running yet, start it in the background and
-  # wait for it to respond to `ollama list`.
-  docker compose -f "${COMPOSE_FILE}" exec -T ollama sh -c "pgrep -x ollama >/dev/null || (/bin/ollama serve >/tmp/ollama.log 2>&1 &)" || true
-
-  for attempt in {1..20}; do
-    if docker exec -i ollama ollama list >/dev/null 2>&1; then
-      break
-    fi
-    echo "Waiting for Ollama to become ready (attempt ${attempt}/20)..."
-    sleep 3
-    if [[ ${attempt} -eq 20 ]]; then
-      echo "Ollama container is not ready; aborting. Logs from container:"
-      docker compose -f "${COMPOSE_FILE}" logs --tail 50 ollama || true
-      exit 1
-    fi
-  done
+  echo "Waiting 10 seconds for Ollama to finish startup before pulling models..."
+  sleep 10
 
   for model in "${MODELS[@]}"; do
     echo "Pulling ${model} into Ollama..."
