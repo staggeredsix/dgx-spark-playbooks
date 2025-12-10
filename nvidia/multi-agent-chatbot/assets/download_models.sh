@@ -61,14 +61,21 @@ pull_ollama_models() {
   }
   trap cleanup EXIT
 
+  # The container image doesn't automatically start the Ollama daemon when
+  # invoked with a custom entrypoint, so ensure it is running before pulling
+  # models. If the daemon isn't running yet, start it in the background and
+  # wait for it to respond to `ollama list`.
+  docker compose -f "${COMPOSE_FILE}" exec -T ollama sh -c "pgrep -x ollama >/dev/null || (/bin/ollama serve >/tmp/ollama.log 2>&1 &)" || true
+
   for attempt in {1..10}; do
-    if docker exec -i ollama ollama --version >/dev/null 2>&1; then
+    if docker exec -i ollama ollama list >/dev/null 2>&1; then
       break
     fi
     echo "Waiting for Ollama to become ready (attempt ${attempt}/10)..."
     sleep 3
     if [[ ${attempt} -eq 10 ]]; then
-      echo "Ollama container is not ready; aborting." >&2
+      echo "Ollama container is not ready; aborting. Logs from container:"
+      docker compose -f "${COMPOSE_FILE}" logs --tail 50 ollama || true
       exit 1
     fi
   done
