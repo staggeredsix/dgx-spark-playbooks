@@ -34,7 +34,7 @@ RUN pip install --no-cache-dir \
     safetensors \
     sentencepiece \
     bitsandbytes \
-    onnxruntime-gpu \
+    onnxruntime>=1.19.2 \
     fastapi \
     uvicorn[standard] \
     huggingface-hub \
