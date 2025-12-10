@@ -66,6 +66,11 @@ class MCPClient:
                 "command": "python",
                 "args": ["tools/mcp_servers/flux_image_generation.py"],
                 "transport": "stdio",
+            },
+            "wan-video-server": {
+                "command": "python",
+                "args": ["tools/mcp_servers/wan_video_generation.py"],
+                "transport": "stdio",
             }
         }
         self.mcp_client: MultiServerMCPClient | None = None

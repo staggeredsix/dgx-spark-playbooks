@@ -79,6 +79,10 @@ This step starts the Ollama runtime, Qdrant, the backend API server, and the fro
 docker compose up -d --build
 ```
 
+> The compose file now builds two additional internal services:
+> * **flux-service**: a GPU-enabled FLUX fp4 image generator listening on port 8080
+> * **video-service**: a Wan2.2 text-to-video helper listening on port 8081
+
 > **Tip**: The models compose file (`docker-compose-models.yml`) remains available for overrides and customization. If you prefer to keep your model configuration separate, you can still run:
 > ```bash
 > docker compose -f docker-compose.yml -f docker-compose-models.yml up -d --build
@@ -116,6 +120,46 @@ Before trying out the example prompt for the RAG agent, upload the example PDF d
 **Example Prompt:**
 
 Describe this image: https://en.wikipedia.org/wiki/London_Bridge#/media/File:London_Bridge_from_St_Olaf_Stairs.jpg
+
+
+---
+
+## FLUX image and video service details
+
+### Building and running
+Both services are included in the default compose workflow. To rebuild just these two services, run:
+
+```bash
+docker compose build flux-service video-service
+docker compose up -d flux-service video-service
+```
+
+> **GPU requirement**: `flux-service` requires NVIDIA GPUs. Ensure Docker has GPU access (for example via the NVIDIA Container Toolkit providing `--gpus all`). The service logs the ONNX provider it will use on startup.
+
+### Health checks
+```bash
+curl http://localhost:8080/health   # FLUX service
+curl http://localhost:8081/health   # Wan video service
+```
+
+The FLUX endpoint reports the ONNX provider (CUDA or CPU), model identifier, and cache path. The video endpoint reports whether the Wan model cache directory is present.
+
+### Testing the tools directly
+Generate a sample image (uses defaults inside the service):
+```bash
+curl -X POST http://localhost:8080/generate_image \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt": "Create a cartoon image of a squirrel holding an elephant that is holding a weasel that is holding a beetle that is holding an ant that is holding a cupcake."}'
+```
+
+Generate a sample video (requires a valid `HF_TOKEN` or `HUGGINGFACEHUB_API_TOKEN` available to the container):
+```bash
+curl -X POST http://localhost:8081/generate_video \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt": "Large robot throwing a a smaller robot that is carrying an even smaller robot that is wearing a dog costume."}'
+```
+
+Both endpoints return base64-encoded payloads (`image_base64` / `video_base64`) and a markdown snippet that the backend tools forward unchanged to the UI.
 
 
 ## Cleanup
