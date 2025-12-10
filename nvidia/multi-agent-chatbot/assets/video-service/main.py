@@ -123,15 +123,7 @@ async def generate_video(request: GenerateVideoRequest):
     if not token:
         raise HTTPException(status_code=400, detail="A Hugging Face token is required for Wan2.2 video generation.")
 
-    if not WAN_INFERENCE_ENDPOINT:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "Wan2.2 inference endpoint is not configured. Set WAN_INFERENCE_ENDPOINT to a self-hosted server to enable video generation."
-            ),
-        )
-
-    if "huggingface.co" in WAN_INFERENCE_ENDPOINT:
+    if WAN_INFERENCE_ENDPOINT and "huggingface.co" in WAN_INFERENCE_ENDPOINT:
         raise HTTPException(
             status_code=400,
             detail=(
@@ -141,6 +133,7 @@ async def generate_video(request: GenerateVideoRequest):
 
     def _run_inference() -> dict:
         client = InferenceClient(
+            model=WAN_REPO_ID if not WAN_INFERENCE_ENDPOINT else None,
             token=token,
             endpoint=WAN_INFERENCE_ENDPOINT,
         )
