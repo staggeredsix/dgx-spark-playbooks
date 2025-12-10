@@ -188,7 +188,7 @@ download_flux_model
 echo "Downloading Wan2.2 Text-to-Video model..."
 download_wan_t2v_model
 
-echo "Downloading Wan2.2 GGUF model..."
+echo "Downloading Wan2.2 T2V HighNoise Q4_0 GGUF model..."
 download_wan_t2v_gguf_model
 
 echo "All models downloaded into their respective caches."

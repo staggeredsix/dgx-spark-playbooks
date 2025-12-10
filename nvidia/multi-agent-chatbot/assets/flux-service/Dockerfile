@@ -7,8 +7,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        python3 \
-        python3-venv \
+        python3.11 \
+        python3.11-venv \
+        python3.11-distutils \
         python3-pip \
         git \
         ca-certificates \
@@ -16,8 +17,8 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-# Create a dedicated virtual environment
-RUN python3 -m venv /opt/venv
+# Create a dedicated virtual environment with Python 3.11+
+RUN python3.11 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Upgrade pip before installing dependencies
