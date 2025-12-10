@@ -9,9 +9,8 @@ import logging
 import os
 from typing import Optional
 
-import numpy as np
-import onnxruntime as ort
-from diffusers import FluxOnnxPipeline
+import torch
+from diffusers import FluxPipeline
 from fastapi import FastAPI, HTTPException
 from huggingface_hub import snapshot_download
 from pydantic import BaseModel, Field
@@ -20,7 +19,7 @@ from PIL import Image
 logger = logging.getLogger("flux-service")
 logging.basicConfig(level=logging.INFO)
 
-MODEL_ID = os.getenv("FLUX_MODEL_ID", "black-forest-labs/FLUX.1-dev-onnx/transformer.opt/fp4")
+MODEL_ID = os.getenv("FLUX_MODEL_ID", "black-forest-labs/FLUX.1-schnell")
 MODEL_CACHE = os.getenv("FLUX_MODEL_DIR", "/models/flux-fp4")
 DEFAULT_HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
 
@@ -45,23 +44,21 @@ class HealthResponse(BaseModel):
     cache_path: str
 
 
-_pipeline: FluxOnnxPipeline | None = None
-_provider: str | None = None
+_pipeline: FluxPipeline | None = None
+_device: str | None = None
 
 
 def _resolve_token(override: Optional[str]) -> Optional[str]:
     return override or DEFAULT_HF_TOKEN
 
 
-def _ensure_pipeline(token: Optional[str]) -> FluxOnnxPipeline:
-    global _pipeline, _provider
+def _ensure_pipeline(token: Optional[str]) -> FluxPipeline:
+    global _pipeline, _device
     if _pipeline is not None:
         return _pipeline
 
-    available_providers = ort.get_available_providers()
-    _provider = "CUDAExecutionProvider" if "CUDAExecutionProvider" in available_providers else "CPUExecutionProvider"
-    logger.info("Available ONNX providers: %s", available_providers)
-    logger.info("Using ONNX provider: %s", _provider)
+    _device = "cuda" if torch.cuda.is_available() else "cpu"
+    logger.info("Using device: %s", _device)
 
     try:
         local_path = snapshot_download(
@@ -74,10 +71,15 @@ def _ensure_pipeline(token: Optional[str]) -> FluxOnnxPipeline:
         )
     except Exception as exc:
         raise RuntimeError(
-            "Failed to download FLUX fp4 weights. Provide a valid HF token or mount the model into FLUX_MODEL_DIR."
+            "Failed to download FLUX weights. Provide a valid HF token or mount the model into FLUX_MODEL_DIR."
         ) from exc
 
-    _pipeline = FluxOnnxPipeline.from_pretrained(local_path, provider=_provider, token=token)
+    _pipeline = FluxPipeline.from_pretrained(
+        local_path,
+        token=token,
+        torch_dtype=torch.bfloat16,
+    )
+    _pipeline.to(_device)
     return _pipeline
 
 
@@ -110,7 +112,7 @@ async def _load_model_on_startup() -> None:
 
 @app.get("/health", response_model=HealthResponse)
 def healthcheck():
-    provider = _provider or "uninitialized"
+    provider = _device or "uninitialized"
     return HealthResponse(status="ok" if _pipeline is not None else "loading", provider=provider, model=MODEL_ID, cache_path=MODEL_CACHE)
 
 
@@ -123,7 +125,10 @@ async def generate_image(request: GenerateImageRequest):
         logger.exception("Pipeline initialization failed")
         raise HTTPException(status_code=500, detail=str(exc))
 
-    generator = np.random.RandomState(request.seed) if request.seed is not None else None
+    generator: torch.Generator | None = None
+    if request.seed is not None:
+        generator = torch.Generator(device=_device or ("cuda" if torch.cuda.is_available() else "cpu"))
+        generator.manual_seed(request.seed)
 
     try:
         image = pipeline(
@@ -144,7 +149,7 @@ async def generate_image(request: GenerateImageRequest):
         {
             "prompt": request.prompt,
             "model": MODEL_ID,
-            "provider": _provider,
+            "provider": _device,
         }
     )
     return response

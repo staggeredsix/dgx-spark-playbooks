@@ -1,0 +1,12 @@
+diffusers[torch]>=0.36.0
+transformers>=4.44.0
+accelerate
+safetensors
+fastapi
+uvicorn[standard]
+huggingface-hub
+pillow
+pydantic
+numpy
+sentencepiece
+bitsandbytes
