@@ -239,6 +239,11 @@ export default function QuerySection({
       return Array.isArray(parsed)
         ? parsed.map((msg: any): Message => {
             const content = typeof msg?.content === "string" ? msg.content : String(msg?.content ?? "");
+            const dataUriMatch = content.match(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/);
+            const normalizedContent =
+              dataUriMatch && !content.includes("![")
+                ? `![Generated image](${dataUriMatch[0]})`
+                : content;
             const videoSrc = typeof msg?.videoSrc === "string" ? msg.videoSrc : extractVideoSrc(content);
 
             return {
@@ -248,8 +253,8 @@ export default function QuerySection({
                   : msg?.type === "ToolMessage"
                   ? "ToolMessage"
                   : "AssistantMessage",
-              content,
-              isImage: Boolean(msg?.isImage),
+              content: normalizedContent,
+              isImage: Boolean(msg?.isImage) || Boolean(dataUriMatch),
               isVideo: Boolean(msg?.isVideo) || Boolean(videoSrc),
               videoSrc,
               downloadName: typeof msg?.downloadName === "string" ? msg.downloadName : undefined,
