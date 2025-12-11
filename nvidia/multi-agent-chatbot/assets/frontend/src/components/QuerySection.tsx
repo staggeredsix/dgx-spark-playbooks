@@ -34,6 +34,8 @@ function resolveMediaSrc(raw: string | undefined | null): string | null {
 
   if (/^(data:(?:image|video)\/|https?:\/\/|blob:)/i.test(trimmed)) return trimmed;
 
+  if (trimmed.startsWith("/api/")) return trimmed;
+
   if (trimmed.startsWith("/")) return buildBackendUrl(trimmed);
 
   return null;
@@ -250,6 +252,9 @@ export default function QuerySection({
   const [showWelcome, setShowWelcome] = useState(true);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const shouldReconnectRef = useRef(true);
   const [toolOutput, setToolOutput] = useState("");
   const [graphStatus, setGraphStatus] = useState("");
   const [isPinnedToolOutputVisible, setPinnedToolOutputVisible] = useState(false);
@@ -330,34 +335,52 @@ export default function QuerySection({
     fetchSelectedSources();
   }, [warmupComplete, loadingDismissed]);
 
-  useEffect(() => {
-    const initWebSocket = async () => {
-      if (!currentChatId || (!warmupComplete && !loadingDismissed)) return;
+  const scheduleReconnect = useCallback(() => {
+    if (reconnectTimerRef.current || !shouldReconnectRef.current) return;
 
-      try {
-        if (wsRef.current) {
-          wsRef.current.close();
-        }
+    reconnectTimerRef.current = setTimeout(() => {
+      reconnectTimerRef.current = null;
+      reconnectAttemptsRef.current += 1;
+      initWebSocket(true);
+    }, Math.min(30000, 1000 * 2 ** reconnectAttemptsRef.current));
+  }, []);
 
-        const wsUrl = buildWebSocketUrl(`/ws/chat/${currentChatId}`);
-        const ws = new WebSocket(wsUrl);
-        wsRef.current = ws;
+  const initWebSocket = useCallback((isRetry = false) => {
+    if (!currentChatId || (!warmupComplete && !loadingDismissed) || !shouldReconnectRef.current) return;
 
-        ws.onmessage = (event) => {
-          const msg = JSON.parse(event.data);
-          const type = msg.type
-          const text = msg.data ?? msg.token ?? msg.content ?? "";
-        
-          switch (type) {
-            case "history": {
-              console.log('history messages: ', msg.messages);
-              if (Array.isArray(msg.messages)) {
-                // const filtered = msg.messages.filter(m => m.type !== "ToolMessage"); // TODO: add this back in
-                setResponse(JSON.stringify(msg.messages));
-                setIsStreaming(false);
-              }
-              break;
+    try {
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+
+      const wsUrl = buildWebSocketUrl(`/ws/chat/${currentChatId}`);
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        reconnectAttemptsRef.current = 0;
+      };
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        const type = msg.type
+        const text = msg.data ?? msg.token ?? msg.content ?? "";
+
+        switch (type) {
+          case "history": {
+            console.log('history messages: ', msg.messages);
+            if (Array.isArray(msg.messages)) {
+              // const filtered = msg.messages.filter(m => m.type !== "ToolMessage"); // TODO: add this back in
+              setResponse(JSON.stringify(msg.messages));
+              setIsStreaming(false);
             }
+            break;
+          }
             case "stopped": {
               setIsStreaming(false);
               setGraphStatus("");
@@ -464,41 +487,54 @@ export default function QuerySection({
               setAttachmentError(msg.content || text || "Attachment unavailable for this chat. Please re-upload.");
               break;
             }
-            default: {
-              // ignore unknown events
-            }
+          default: {
+            // ignore unknown events
           }
-        };
+        }
+      };
 
-        ws.onclose = () => {
-          console.log("WebSocket connection closed");
-          setIsStreaming(false);
-        };
-
-        ws.onerror = (error) => {
-          const event = error as Event & { message?: string };
-          console.error("WebSocket error:", {
-            message: event.message,
-            type: event.type,
-            url: ws.url,
-            readyState: ws.readyState
-          });
-          setIsStreaming(false);
-        };
-      } catch (error) {
-        console.error("Error initializing WebSocket:", error);
+      ws.onclose = () => {
+        console.log("WebSocket connection closed");
         setIsStreaming(false);
-      }
-    };
+        if (shouldReconnectRef.current) scheduleReconnect();
+      };
 
+      ws.onerror = (error) => {
+        const event = error as Event & { message?: string };
+        console.error("WebSocket error:", {
+          message: event.message,
+          type: event.type,
+          url: ws.url,
+          readyState: ws.readyState
+        });
+        setIsStreaming(false);
+        if (shouldReconnectRef.current) scheduleReconnect();
+      };
+
+      if (!isRetry) {
+        reconnectAttemptsRef.current = 0;
+      }
+    } catch (error) {
+      console.error("Error initializing WebSocket:", error);
+      setIsStreaming(false);
+      if (shouldReconnectRef.current) scheduleReconnect();
+    }
+  }, [currentChatId, loadingDismissed, scheduleReconnect, warmupComplete]);
+
+  useEffect(() => {
+    shouldReconnectRef.current = true;
     initWebSocket();
 
     return () => {
+      shouldReconnectRef.current = false;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+      }
       if (wsRef.current) {
         wsRef.current.close();
       }
     };
-  }, [currentChatId, warmupComplete, loadingDismissed]);
+  }, [initWebSocket]);
 
   useEffect(() => {
     const messages = normalizeMessages(response);
@@ -752,9 +788,14 @@ export default function QuerySection({
     },
     img({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) {
       const resolvedSrc = formatImageSrc(src || "");
+      const finalSrc = resolvedSrc || (src && src.trim() ? src : undefined);
+
+      if (!finalSrc) {
+        return null;
+      }
       return (
         <img
-          src={resolvedSrc || src || ""}
+          src={finalSrc}
           alt={alt || "Generated image"}
           loading="lazy"
           onError={(event) => {
