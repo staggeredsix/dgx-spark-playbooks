@@ -89,7 +89,17 @@ class RAGAgent:
         config_path = self._get_config_path()
         self.config_manager = ConfigManager(config_path)
         try:
-            self.vector_store = create_vector_store_with_config(self.config_manager)
+            logger.info(
+                {
+                    "message": "Initializing vector store for RAG MCP server",
+                    "hint": "Will attempt a limited embedding warmup to avoid startup stalls",
+                }
+            )
+            self.vector_store = create_vector_store_with_config(
+                self.config_manager,
+                embedding_init_retries=3,
+                embedding_init_backoff=1.0,
+            )
         except EmbeddingServiceUnavailable as exc:
             logger.error(
                 "Embedding service unavailable for RAG MCP server."
