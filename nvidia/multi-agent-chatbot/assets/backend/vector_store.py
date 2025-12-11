@@ -16,6 +16,7 @@
 #
 import glob
 import os
+import time
 from typing import List, Optional, Callable
 
 from dotenv import load_dotenv
@@ -26,6 +27,7 @@ from langchain_community.vectorstores import Neo4jVector
 from langchain_unstructured import UnstructuredLoader
 from logger import logger
 from neo4j import GraphDatabase
+from neo4j.exceptions import ServiceUnavailable
 
 load_dotenv()
 
@@ -95,23 +97,54 @@ class VectorStore:
             raise
 
     def _initialize_store(self):
-        self._ensure_vector_index()
-        self._store = Neo4jVector.from_existing_index(
-            embedding=self.embeddings,
-            url=self.uri,
-            username=self.username,
-            password=self.password,
-            database=self.database,
-            index_name=self.index_name,
-            text_node_property=self.text_node_property,
-            embedding_node_property=self.embedding_node_property,
-            node_label=self.node_label,
-        )
-        logger.debug({
-            "message": "Neo4j vector store initialized",
-            "uri": self.uri,
-            "index_name": self.index_name
+        max_attempts = int(os.getenv("NEO4J_INIT_RETRIES", "5"))
+        backoff = float(os.getenv("NEO4J_INIT_BACKOFF", "2"))
+        last_error = None
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                self._ensure_vector_index()
+                self._store = Neo4jVector.from_existing_index(
+                    embedding=self.embeddings,
+                    url=self.uri,
+                    username=self.username,
+                    password=self.password,
+                    database=self.database,
+                    index_name=self.index_name,
+                    text_node_property=self.text_node_property,
+                    embedding_node_property=self.embedding_node_property,
+                    node_label=self.node_label,
+                )
+                logger.debug({
+                    "message": "Neo4j vector store initialized",
+                    "uri": self.uri,
+                    "index_name": self.index_name,
+                    "attempt": attempt
+                })
+                return
+            except ServiceUnavailable as exc:
+                last_error = exc
+                logger.warning({
+                    "message": "Neo4j not ready, will retry",
+                    "attempt": attempt,
+                    "max_attempts": max_attempts,
+                    "backoff_seconds": backoff
+                })
+            except Exception as exc:  # pragma: no cover - unexpected initialization errors
+                logger.error({
+                    "message": "Unexpected error initializing Neo4j vector store",
+                    "error": str(exc)
+                }, exc_info=True)
+                raise
+
+            time.sleep(backoff)
+
+        logger.error({
+            "message": "Failed to initialize Neo4j vector store after retries",
+            "attempts": max_attempts,
+            "error": str(last_error) if last_error else None
         })
+        raise last_error
 
     def _ensure_vector_index(self):
         dimensions = len(self.embeddings.embed_query("test"))
