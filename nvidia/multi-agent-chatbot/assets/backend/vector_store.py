@@ -32,6 +32,10 @@ from neo4j.exceptions import ServiceUnavailable
 load_dotenv()
 
 
+class EmbeddingServiceUnavailable(Exception):
+    """Raised when the embedding backend cannot be reached after retries."""
+
+
 class VectorStore:
     """Vector store for document embedding and retrieval using Neo4j."""
 
@@ -130,6 +134,15 @@ class VectorStore:
                     "max_attempts": max_attempts,
                     "backoff_seconds": backoff
                 })
+            except EmbeddingServiceUnavailable as exc:
+                last_error = exc
+                logger.warning({
+                    "message": "Embedding service not ready, will retry",
+                    "attempt": attempt,
+                    "max_attempts": max_attempts,
+                    "backoff_seconds": backoff,
+                    "error": str(exc)
+                })
             except Exception as exc:  # pragma: no cover - unexpected initialization errors
                 logger.error({
                     "message": "Unexpected error initializing Neo4j vector store",
@@ -199,7 +212,7 @@ class VectorStore:
             "attempts": max_attempts,
             "error": str(last_error) if last_error else None
         })
-        raise last_error
+        raise EmbeddingServiceUnavailable(last_error or "Embedding service unavailable") from last_error
 
     def _load_documents(self, file_paths: List[str] = None, input_dir: str = None) -> List[str]:
         try:
