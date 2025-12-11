@@ -22,6 +22,8 @@ import logging
 import threading
 from typing import List, Optional
 
+import requests
+
 from logger import logger
 from models import ChatConfig
 
@@ -39,34 +41,104 @@ class ConfigManager:
     @property
     def default_flux_model(self) -> str:
         return "black-forest-labs/FLUX.1-schnell"
+
+    @staticmethod
+    def _env_models() -> List[str]:
+        models_env = os.getenv("MODELS", "")
+        return [model.strip() for model in models_env.split(",") if model.strip()] if models_env else []
+
+    @staticmethod
+    def _dedupe_models(*model_lists: List[str]) -> List[str]:
+        seen = set()
+        ordered: List[str] = []
+        for models in model_lists:
+            for model in models or []:
+                if model and model not in seen:
+                    ordered.append(model)
+                    seen.add(model)
+        return ordered
+
+    def _discover_ollama_models(self) -> List[str]:
+        api_base = os.getenv("LLM_API_BASE_URL", "http://localhost:11434/v1").removesuffix("/v1")
+
+        try:
+            response = requests.get(f"{api_base}/api/tags", timeout=5)
+            response.raise_for_status()
+            payload = response.json() or {}
+            discovered = [model.get("name") for model in payload.get("models", []) if model.get("name")]
+            if discovered:
+                logger.info(
+                    {
+                        "message": "Discovered Ollama models",
+                        "count": len(discovered),
+                        "models": discovered,
+                        "base_url": api_base,
+                    }
+                )
+            return discovered
+        except Exception as exc:  # pragma: no cover - defensive network access
+            logger.debug({"message": "Falling back to static models list", "error": str(exc)})
+            return []
+
+    def _sync_models(self, config: ChatConfig, env_models: Optional[List[str]] = None) -> bool:
+        """Merge configured models with any discovered from the Ollama host."""
+
+        env_models = env_models if env_models is not None else self._env_models()
+        discovered_models = self._discover_ollama_models() if not env_models and not config.models else []
+
+        merged_models = self._dedupe_models(env_models, config.models or [], discovered_models)
+        updated = False
+
+        if merged_models != (config.models or []):
+            config.models = merged_models
+            updated = True
+
+        default_choice = merged_models[0] if merged_models else None
+
+        if not config.selected_model and default_choice:
+            config.selected_model = default_choice
+            updated = True
+
+        if not config.supervisor_model and default_choice:
+            config.supervisor_model = config.selected_model or default_choice
+            updated = True
+
+        if not config.code_model and default_choice:
+            config.code_model = os.getenv("CODE_MODEL", default_choice)
+            updated = True
+
+        if not config.vision_model and default_choice:
+            config.vision_model = os.getenv("VISION_MODEL", default_choice)
+            updated = True
+
+        return updated
     
     def _ensure_config_exists(self) -> None:
         """Ensure config.json exists, creating it with default values if not."""
-        models_env = os.getenv("MODELS", "")
-        if models_env:
-            models = [model.strip() for model in models_env.split(",") if model.strip()]
-        else:
-            models = []
+        env_models = self._env_models()
+        if not env_models:
             logger.warning("MODELS environment variable not set, using empty models list")
 
         if not os.path.exists(self.config_path):
             logger.debug(f"Config file {self.config_path} not found, creating default config")
             default_config = ChatConfig(
                 sources=[],
-                models=models,
-                selected_model=models[0] if models else None,
+                models=env_models,
+                selected_model=env_models[0] if env_models else None,
                 selected_sources=[],
                 current_chat_id=None,
                 tavily_enabled=False,
                 tavily_api_key=None,
-                supervisor_model=models[0] if models else None,
+                supervisor_model=env_models[0] if env_models else None,
                 code_model=os.getenv("CODE_MODEL", "qwen3-coder:30b"),
                 vision_model=os.getenv("VISION_MODEL", "ministral-3:14b"),
                 flux_enabled=False,
                 flux_model=self.default_flux_model,
                 hf_api_key=None,
             )
-            
+
+            self._sync_models(default_config, env_models)
+
             with open(self.config_path, "w") as f:
                 json.dump(default_config.model_dump(), f, indent=2)
         else:
@@ -75,41 +147,34 @@ class ConfigManager:
                     data = json.load(f)
                 existing_config = ChatConfig(**data)
 
-                if models:
-                    existing_config.models = models
-                    if not existing_config.selected_model or existing_config.selected_model not in models:
-                        existing_config.selected_model = models[0]
-
-                if not existing_config.supervisor_model:
-                    existing_config.supervisor_model = existing_config.selected_model
-                if not existing_config.code_model:
-                    existing_config.code_model = os.getenv("CODE_MODEL", "qwen3-coder:30b")
-                if not existing_config.vision_model:
-                    existing_config.vision_model = os.getenv("VISION_MODEL", "ministral-3:14b")
+                updated = self._sync_models(existing_config, env_models)
                 if existing_config.flux_model is None:
                     existing_config.flux_model = self.default_flux_model
-                
-                with open(self.config_path, "w") as f:
-                    json.dump(existing_config.model_dump(), f, indent=2)
-                    
-                logger.debug(f"Updated existing config with models: {models}")
+                    updated = True
+
+                if updated:
+                    with open(self.config_path, "w") as f:
+                        json.dump(existing_config.model_dump(), f, indent=2)
+
+                logger.debug(f"Updated existing config with models: {existing_config.models}")
             except Exception as e:
                 logger.error(f"Error updating existing config: {e}")
                 default_config = ChatConfig(
                     sources=[],
-                    models=models,
-                    selected_model=models[0] if models else None,
+                    models=env_models,
+                    selected_model=env_models[0] if env_models else None,
                     selected_sources=[],
                     current_chat_id=None,
                     tavily_enabled=False,
                     tavily_api_key=None,
-                    supervisor_model=models[0] if models else None,
+                    supervisor_model=env_models[0] if env_models else None,
                     code_model=os.getenv("CODE_MODEL", "qwen3-coder:30b"),
                     vision_model=os.getenv("VISION_MODEL", "ministral-3:14b"),
                     flux_enabled=False,
                     flux_model=self.default_flux_model,
                     hf_api_key=None,
                 )
+                self._sync_models(default_config, env_models)
                 with open(self.config_path, "w") as f:
                     json.dump(default_config.model_dump(), f, indent=2)
     
@@ -122,13 +187,17 @@ class ConfigManager:
                     with open(self.config_path, "r") as f:
                         data = json.load(f)
                     self.config = ChatConfig(**data)
-                    self._last_modified = current_mtime
+                    if self._sync_models(self.config):
+                        with open(self.config_path, "w") as f:
+                            json.dump(self.config.model_dump(), f, indent=2)
+                        self._last_modified = os.path.getmtime(self.config_path)
+                    else:
+                        self._last_modified = current_mtime
                 return self.config
             except Exception as e:
                 logger.error(f"Error reading config: {e}")
                 if self.config is None:
-                    models_env = os.getenv("MODELS", "")
-                    models = [model.strip() for model in models_env.split(",") if model.strip()] if models_env else []
+                    models = self._env_models()
 
                     self.config = ChatConfig(
                         sources=[],
@@ -246,10 +315,11 @@ class ConfigManager:
 
     def get_model_settings(self) -> dict:
         config = self.read_config()
+        default_model = config.selected_model or (config.models[0] if config.models else None)
         return {
-            "supervisor_model": config.supervisor_model or config.selected_model,
-            "code_model": config.code_model,
-            "vision_model": config.vision_model,
+            "supervisor_model": config.supervisor_model or default_model,
+            "code_model": config.code_model or default_model,
+            "vision_model": config.vision_model or default_model,
             "flux_enabled": bool(config.flux_enabled),
             "flux_model": config.flux_model or self.default_flux_model,
             "hf_api_key": config.hf_api_key,
