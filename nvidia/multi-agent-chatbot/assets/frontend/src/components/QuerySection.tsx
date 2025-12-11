@@ -24,17 +24,47 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"; // NEW
 import { oneDark, oneLight, Dark, Light } from "react-syntax-highlighter/dist/esm/styles/prism"; // NEW
 import WelcomeSection from "./WelcomeSection";
 
-const VIDEO_SOURCE_REGEX = /src=["'](data:video[^"']+)["']/i;
+const VIDEO_SOURCE_REGEX = /src=["'](data:video[^"']+|https?:\/\/[^"']+|\/[^"']+)["']/i;
+
+function resolveMediaSrc(raw: string | undefined | null): string | null {
+  if (!raw) return null;
+
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  if (/^(data:(?:image|video)\/|https?:\/\/|blob:)/i.test(trimmed)) return trimmed;
+
+  if (trimmed.startsWith("/")) return buildBackendUrl(trimmed);
+
+  return null;
+}
+
+function formatImageSrc(raw: string | undefined | null): string | null {
+  const resolved = resolveMediaSrc(raw);
+  if (resolved) return resolved;
+
+  const trimmed = (raw || "").trim();
+  if (!trimmed) return null;
+
+  const compact = trimmed.replace(/\s+/g, "");
+  const looksLikeBase64 = compact.length > 100 && /^[A-Za-z0-9+/]+={0,2}$/.test(compact);
+  if (looksLikeBase64) {
+    return `data:image/png;base64,${compact}`;
+  }
+
+  return null;
+}
 
 function extractVideoSrc(content?: string): string | undefined {
   if (!content) return undefined;
   const match = content.match(VIDEO_SOURCE_REGEX);
   if (match?.[1]) {
-    return match[1];
+    return resolveMediaSrc(match[1]) || match[1];
   }
 
-  const markdownLink = content.match(/\((data:video[^)]+)\)/i);
-  return markdownLink?.[1];
+  const markdownLink = content.match(/\((data:video[^)]+|https?:\/\/[^)]+|\/[^)]+)\)/i);
+  const candidate = markdownLink?.[1];
+  return resolveMediaSrc(candidate) || candidate;
 }
 
 function stripVideoMarkup(content?: string): string {
@@ -239,12 +269,21 @@ export default function QuerySection({
       return Array.isArray(parsed)
         ? parsed.map((msg: any): Message => {
             const content = typeof msg?.content === "string" ? msg.content : String(msg?.content ?? "");
+            const markdownImageMatch = content.match(/!\[[^\]]*]\(([^)]+)\)/);
+            const embeddedImageSrc = markdownImageMatch?.[1];
+            const formattedImageSrc = formatImageSrc(embeddedImageSrc || content);
             const dataUriMatch = content.match(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/);
             const normalizedContent =
-              dataUriMatch && !content.includes("![")
-                ? `![Generated image](${dataUriMatch[0]})`
+              (dataUriMatch || formattedImageSrc) && !content.includes("![") && !markdownImageMatch
+                ? `![Generated image](${dataUriMatch ? dataUriMatch[0] : formattedImageSrc})`
                 : content;
-            const videoSrc = typeof msg?.videoSrc === "string" ? msg.videoSrc : extractVideoSrc(content);
+            const rawVideoSrc =
+              typeof msg?.videoUrl === "string"
+                ? msg.videoUrl
+                : typeof msg?.videoSrc === "string"
+                  ? msg.videoSrc
+                  : undefined;
+            const videoSrc = resolveMediaSrc(rawVideoSrc) || extractVideoSrc(content);
 
             return {
               type:
@@ -254,7 +293,7 @@ export default function QuerySection({
                   ? "ToolMessage"
                   : "AssistantMessage",
               content: normalizedContent,
-              isImage: Boolean(msg?.isImage) || Boolean(dataUriMatch),
+              isImage: Boolean(msg?.isImage) || Boolean(dataUriMatch) || Boolean(formattedImageSrc) || Boolean(markdownImageMatch),
               isVideo: Boolean(msg?.isVideo) || Boolean(videoSrc),
               videoSrc,
               downloadName: typeof msg?.downloadName === "string" ? msg.downloadName : undefined,
@@ -351,27 +390,42 @@ export default function QuerySection({
               break;
             }
             case "image": {
+              const providedUrl = typeof msg.url === "string" ? msg.url : "";
               const rawImage = typeof msg.raw === "string" ? msg.raw : "";
-              const imageMarkdown = rawImage ? `![Generated image](${rawImage})` : msg.content || text;
+              const contentImage = typeof msg.content === "string" ? msg.content : "";
+              const textImage = typeof text === "string" ? text : "";
+              const imageSrc =
+                formatImageSrc(providedUrl) ??
+                formatImageSrc(rawImage) ??
+                formatImageSrc(contentImage) ??
+                formatImageSrc(textImage);
+              const imageMarkdown = imageSrc
+                ? `![Generated image](${imageSrc})`
+                : contentImage || textImage;
               if (!imageMarkdown) break;
 
               hasAssistantContent.current = true;
               setResponse(prev => {
                 const messages = normalizeMessages(prev);
-                messages.push({ type: "AssistantMessage", content: imageMarkdown, isImage: true });
+                messages.push({ type: "AssistantMessage", content: imageMarkdown, isImage: Boolean(imageSrc) });
                 return JSON.stringify(messages);
               });
               break;
             }
             case "video": {
+              const providedUrl = typeof msg.url === "string" ? msg.url : "";
               const rawVideo = typeof msg.raw === "string" ? msg.raw : "";
               const videoMarkdown =
                 msg.content ||
                 text ||
-                (rawVideo
-                  ? `<video controls src="${rawVideo}">Your browser does not support the video tag.</video>`
+                ((resolveMediaSrc(providedUrl) || resolveMediaSrc(rawVideo))
+                  ? `<video controls src="${resolveMediaSrc(providedUrl) || resolveMediaSrc(rawVideo)}">Your browser does not support the video tag.</video>`
                   : "");
-              const videoSrc = rawVideo || extractVideoSrc(videoMarkdown);
+              const downloadName = typeof msg.filename === "string" ? msg.filename : "wan-video.mp4";
+              const videoSrc =
+                resolveMediaSrc(providedUrl) ||
+                resolveMediaSrc(rawVideo) ||
+                extractVideoSrc(videoMarkdown);
               if (!videoMarkdown && !videoSrc) break;
 
               hasAssistantContent.current = true;
@@ -382,7 +436,7 @@ export default function QuerySection({
                   content: videoMarkdown,
                   isVideo: true,
                   videoSrc,
-                  downloadName: typeof msg.filename === "string" ? msg.filename : undefined,
+                  downloadName,
                 });
                 return JSON.stringify(messages);
               });
@@ -697,9 +751,10 @@ export default function QuerySection({
       );
     },
     img({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) {
+      const resolvedSrc = formatImageSrc(src || "");
       return (
         <img
-          src={src || ""}
+          src={resolvedSrc || src || ""}
           alt={alt || "Generated image"}
           loading="lazy"
           onError={(event) => {
@@ -730,7 +785,7 @@ export default function QuerySection({
         {parseMessages(response).map((message, index) => {
           const isHuman = message.type === "HumanMessage";
           const key = `${message.type}-${index}`;
-          const videoSrc = message.videoSrc || extractVideoSrc(message.content);
+          const videoSrc = resolveMediaSrc(message.videoSrc) || extractVideoSrc(message.content);
           const cleanedContent = message.isVideo ? stripVideoMarkup(message.content) : message.content;
           const shouldRenderMarkdown = Boolean(cleanedContent?.trim());
 

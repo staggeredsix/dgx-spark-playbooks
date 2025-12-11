@@ -34,7 +34,7 @@ from logger import logger
 from prompts import Prompts
 from postgres_storage import PostgreSQLConversationStorage
 from utils import convert_langgraph_messages_to_openai
-from utils_media import merge_media_payloads
+from utils_media import merge_media_payloads, persist_data_uri_to_file
 
 
 memory = MemorySaver()
@@ -318,24 +318,53 @@ class ChatAgent:
                 if isinstance(tool_result, dict):
                     raw_image = tool_result.get("image_base64") or tool_result.get("image")
                     image_markdown = tool_result.get("image_markdown")
+                    stored_image_url = None
+
                     if raw_image and not image_markdown:
                         image_markdown = f"![Generated image]({raw_image})"
                         tool_result["image_markdown"] = image_markdown
                         tool_result.setdefault("image_base64", raw_image)
 
+                    if raw_image:
+                        stored_image_url = persist_data_uri_to_file(raw_image, "flux-image")
+                        if stored_image_url:
+                            image_markdown = f"![Generated image]({stored_image_url})"
+                            tool_result["image_markdown"] = image_markdown
+                            tool_result["image_url"] = stored_image_url
+                            tool_result.pop("image_base64", None)
+
                     if image_markdown:
                         await self.stream_callback({
                             "type": "image",
                             "content": image_markdown,
-                            "raw": tool_result.get("image_base64"),
+                            "raw": stored_image_url or tool_result.get("image_base64"),
+                            "url": stored_image_url,
                         })
+
+                    video_markdown = tool_result.get("video_markdown")
+                    video_base64 = tool_result.get("video_base64")
+                    stored_video_url = None
+                    download_name = tool_result.get("video_filename", "wan-video.mp4")
+
+                    if video_base64:
+                        stored_video_url = persist_data_uri_to_file(video_base64, "wan-video")
+                        if stored_video_url:
+                            fallback_video_markdown = " ".join([
+                                f'<video controls src="{stored_video_url}">Your browser does not support the video tag.</video>',
+                                f'<a href="{stored_video_url}" download="{download_name}">Download video</a>',
+                            ])
+                            tool_result["video_url"] = stored_video_url
+                            tool_result["video_markdown"] = video_markdown or fallback_video_markdown
+                            tool_result.pop("video_base64", None)
+                            video_markdown = tool_result["video_markdown"]
 
                     if tool_result.get("video_markdown"):
                         await self.stream_callback({
                             "type": "video",
                             "content": tool_result.get("video_markdown"),
-                            "raw": tool_result.get("video_base64"),
-                            "filename": tool_result.get("video_filename"),
+                            "raw": stored_video_url or tool_result.get("video_base64"),
+                            "url": stored_video_url,
+                            "filename": download_name,
                         })
 
                 if "code" in tool_call["name"]:
