@@ -79,6 +79,7 @@ export default function Sidebar({
   const [advancedStatus, setAdvancedStatus] = useState<string | null>(null);
   const [isSavingAdvanced, setIsSavingAdvanced] = useState(false);
   const [fluxDownloadStatus, setFluxDownloadStatus] = useState<string | null>(null);
+  const [fluxLoadingMessage, setFluxLoadingMessage] = useState<string | null>(null);
   const [isDownloadingFlux, setIsDownloadingFlux] = useState(false);
   const [advancedSettings, setAdvancedSettings] = useState<AdvancedSettings>({
     supervisorModel: "",
@@ -632,9 +633,10 @@ export default function Sidebar({
     }
   };
 
-  const handleDownloadFluxModel = async () => {
+  const handleLoadFluxModel = async () => {
     setIsDownloadingFlux(true);
     setFluxDownloadStatus(null);
+    setFluxLoadingMessage("FLUX is a very difficult model to load right now, please wait.");
 
     try {
       const body = {
@@ -653,12 +655,12 @@ export default function Sidebar({
         throw new Error(errorText || "Failed to download FLUX model");
       }
 
-      const data = await response.json();
-      const targetPath = data?.path || "the local Hugging Face cache";
-      setFluxDownloadStatus(`Downloaded ${data?.model || body.model} to ${targetPath}`);
+      await response.json();
+      setFluxLoadingMessage(null);
     } catch (error) {
       console.error("Error downloading FLUX model:", error);
       setFluxDownloadStatus((error as Error).message || "Unable to download FLUX model");
+      setFluxLoadingMessage(null);
     } finally {
       setIsDownloadingFlux(false);
     }
@@ -1089,11 +1091,14 @@ export default function Sidebar({
                       <button
                         type="button"
                         className={styles.secondaryButton}
-                        onClick={handleDownloadFluxModel}
+                        onClick={handleLoadFluxModel}
                         disabled={isDownloadingFlux}
                       >
-                        {isDownloadingFlux ? "Downloading..." : "Download model"}
+                        {isDownloadingFlux ? "Loading FLUX..." : "Load FLUX"}
                       </button>
+                      {fluxLoadingMessage && (
+                        <div className={styles.modalStatus}>{fluxLoadingMessage}</div>
+                      )}
                       {fluxDownloadStatus && (
                         <div className={styles.modalStatus}>{fluxDownloadStatus}</div>
                       )}
