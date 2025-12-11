@@ -17,12 +17,12 @@
 import glob
 import os
 import time
-from typing import List, Optional, Callable
+from typing import Callable, List, Optional
 
 from dotenv import load_dotenv
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.embeddings import OllamaEmbeddings
+from langchain_ollama import OllamaEmbeddings
 from langchain_community.vectorstores import Neo4jVector
 from langchain_unstructured import UnstructuredLoader
 from logger import logger
@@ -75,9 +75,11 @@ class VectorStore:
             self.node_label = node_label
             self.text_node_property = text_node_property
             self.embedding_node_property = embedding_node_property
+            self.embedding_model = self._get_embedding_model()
+            self.embedding_base_url = self._get_embedding_base_url()
             self.embeddings = embeddings or OllamaEmbeddings(
-                model=self._get_embedding_model(),
-                base_url=self._get_embedding_base_url(),
+                model=self.embedding_model,
+                base_url=self.embedding_base_url,
             )
             self.on_source_deleted = on_source_deleted
             self.driver = GraphDatabase.driver(self.uri, auth=(self.username, self.password))
@@ -101,8 +103,8 @@ class VectorStore:
             raise
 
     def _initialize_store(self):
-        max_attempts = int(os.getenv("NEO4J_INIT_RETRIES", "5"))
-        backoff = float(os.getenv("NEO4J_INIT_BACKOFF", "2"))
+        max_attempts = int(os.getenv("NEO4J_INIT_RETRIES", "10"))
+        backoff = float(os.getenv("NEO4J_INIT_BACKOFF", "3"))
         last_error = None
 
         for attempt in range(1, max_attempts + 1):
@@ -183,8 +185,8 @@ class VectorStore:
             })
 
     def _get_embedding_dimensions(self) -> int:
-        max_attempts = int(os.getenv("EMBEDDING_INIT_RETRIES", "5"))
-        backoff = float(os.getenv("EMBEDDING_INIT_BACKOFF", "2"))
+        max_attempts = int(os.getenv("EMBEDDING_INIT_RETRIES", "15"))
+        backoff = float(os.getenv("EMBEDDING_INIT_BACKOFF", "2.5"))
         last_error = None
 
         for attempt in range(1, max_attempts + 1):
@@ -210,9 +212,15 @@ class VectorStore:
         logger.error({
             "message": "Failed to contact embedding service after retries",
             "attempts": max_attempts,
-            "error": str(last_error) if last_error else None
+            "error": str(last_error) if last_error else None,
+            "base_url": self.embedding_base_url,
+            "model": self.embedding_model,
         })
-        raise EmbeddingServiceUnavailable(last_error or "Embedding service unavailable") from last_error
+        raise EmbeddingServiceUnavailable(
+            last_error
+            or f"Embedding service unavailable at {self.embedding_base_url}. "
+            f"Verify the service is running and model '{self.embedding_model}' is available."
+        ) from last_error
 
     def _load_documents(self, file_paths: List[str] = None, input_dir: str = None) -> List[str]:
         try:

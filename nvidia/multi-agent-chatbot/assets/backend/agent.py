@@ -214,6 +214,9 @@ class ChatAgent:
         Raises:
             ValueError: If the model is not available
         """
+        if not model_name:
+            raise ValueError("A model name is required to initialize the agent")
+
         available_models = self.config_manager.get_available_models()
 
         try:

@@ -49,7 +49,7 @@ from utils_media import (
     merge_media_payloads,
     process_uploaded_media,
 )
-from vector_store import create_vector_store_with_config
+from vector_store import EmbeddingServiceUnavailable, create_vector_store_with_config
 from warmup import WarmupManager
 
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "postgres")
@@ -72,14 +72,24 @@ postgres_storage = PostgreSQLConversationStorage(
     password=POSTGRES_PASSWORD
 )
 
-vector_store = create_vector_store_with_config(
-    config_manager,
-    uri=NEO4J_URI,
-    username=NEO4J_USERNAME,
-    password=NEO4J_PASSWORD,
-    database=NEO4J_DATABASE,
-)
-vector_store._initialize_store()
+try:
+    vector_store = create_vector_store_with_config(
+        config_manager,
+        uri=NEO4J_URI,
+        username=NEO4J_USERNAME,
+        password=NEO4J_PASSWORD,
+        database=NEO4J_DATABASE,
+    )
+except EmbeddingServiceUnavailable as exc:
+    logger.error(
+        {
+            "message": "Vector store initialization failed; embedding service unavailable",
+            "base_url": os.getenv("LLM_API_BASE_URL", "http://localhost:11434/v1"),
+            "hint": "Ensure Ollama is running and the embedding model is downloaded",
+        },
+        exc_info=True,
+    )
+    raise
 
 agent: ChatAgent | None = None
 indexing_tasks: Dict[str, str] = {}

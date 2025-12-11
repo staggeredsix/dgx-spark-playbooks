@@ -46,7 +46,11 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
 from config import ConfigManager
-from vector_store import VectorStore, create_vector_store_with_config
+from vector_store import (
+    EmbeddingServiceUnavailable,
+    VectorStore,
+    create_vector_store_with_config,
+)
 
 
 logging.basicConfig(
@@ -84,7 +88,15 @@ class RAGAgent:
         """Initialize the RAG agent with model client, configuration, and graph."""
         config_path = self._get_config_path()
         self.config_manager = ConfigManager(config_path)
-        self.vector_store = create_vector_store_with_config(self.config_manager)
+        try:
+            self.vector_store = create_vector_store_with_config(self.config_manager)
+        except EmbeddingServiceUnavailable as exc:
+            logger.error(
+                "Embedding service unavailable for RAG MCP server."
+                " Ensure Ollama is running and the embedding model is loaded.",
+                exc_info=True,
+            )
+            self.vector_store = None
         self.model_name = self.config_manager.get_selected_model()
         self.model_client = AsyncOpenAI(
             base_url=os.getenv("LLM_API_BASE_URL", "http://localhost:11434/v1"),
@@ -117,6 +129,14 @@ class RAGAgent:
     def retrieve(self, state: RAGState) -> Dict:
         """Retrieve relevant documents from the vector store."""
         logger.info({"message": "Starting document retrieval"})
+        if not self.vector_store:
+            logger.error(
+                {
+                    "message": "Vector store unavailable; skipping retrieval",
+                    "hint": "Check embedding service health and restart MCP server",
+                }
+            )
+            return {"context": []}
         sources = state.get("sources", [])
         
         if sources:
@@ -216,7 +236,7 @@ class RAGAgent:
 
 mcp = FastMCP("RAG")
 rag_agent = RAGAgent()
-vector_store = create_vector_store_with_config(rag_agent.config_manager)
+vector_store = rag_agent.vector_store
 
 
 @mcp.tool()
