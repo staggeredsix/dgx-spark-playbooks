@@ -48,7 +48,7 @@ const STARTUP_MESSAGES = [
 
 const MESSAGE_DURATION = 5000;
 const FADE_DURATION = 600;
-const ESCAPE_BUTTON_DELAY = 30000;
+const ESCAPE_BUTTON_DELAY = 300000;
 const COMPLETION_TRIGGER = "Warmup complete";
 
 export default function Home() {
@@ -272,6 +272,9 @@ export default function Home() {
                 {loadingMessages[currentLoadingMessage] ?? STARTUP_MESSAGES[0]}
               </div>
               <div className={styles.startupEllipsis}>{ellipsis}</div>
+            </div>
+            <div className={styles.startupSubtext}>
+              This is a prototype and does take a while to load.
             </div>
             {showEscapeOption && (
               <div className={styles.escapeContainer}>

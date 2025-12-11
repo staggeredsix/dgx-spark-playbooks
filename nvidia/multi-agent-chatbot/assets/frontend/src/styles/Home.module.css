@@ -192,6 +192,11 @@
   align-items: center;
 }
 
+.startupSubtext {
+  color: #cbd5e1;
+  font-size: 0.95rem;
+}
+
 .startupTitle {
   font-size: 1.2rem;
   font-weight: 600;

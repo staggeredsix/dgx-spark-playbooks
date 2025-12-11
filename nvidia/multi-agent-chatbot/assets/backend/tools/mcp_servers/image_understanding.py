@@ -466,61 +466,34 @@ def explain_video(query: str, video_frames: str | list[str | dict] | dict):
             _ensure_vision_model_ready()
 
             if _is_ollama_endpoint():
-                chunked_frames = _chunk_frames(staged_frames, max_frames=VLM_VIDEO_CHUNK_SIZE)
-                if len(chunked_frames) > 1:
-                    logger.info(
-                        {
-                            "message": "Chunking video frames for vision request",
-                            "model": model_name,
-                            "base_url": _ollama_root_url(),
-                            "frame_count": len(staged_frames),
-                            "chunks": len(chunked_frames),
-                            "chunk_size": VLM_VIDEO_CHUNK_SIZE,
-                        }
-                    )
-                chunk_responses: list[str] = []
+                prompt_parts = [
+                    (
+                        "The following ordered frames are sampled from a video. "
+                        "Each frame includes its timestamp in seconds. Use the temporal ordering when answering."
+                    ),
+                    f"User request: {query}",
+                ]
 
-                frame_offset = 0
-                for chunk_index, chunk in enumerate(chunked_frames, start=1):
-                    prompt_parts = [
-                        (
-                            "The following ordered frames are sampled from a video. "
-                            "Each frame includes its timestamp in seconds. Use the temporal ordering when answering."
-                        ),
-                        f"User request: {query}",
-                    ]
+                for idx, frame in enumerate(staged_frames, start=1):
+                    ts = frame.get("timestamp")
+                    label = f"Frame {idx} at {ts}s" if ts is not None else f"Frame {idx} (timestamp unavailable)"
+                    prompt_parts.append(label)
 
-                    start_idx = frame_offset + 1
-                    end_idx = frame_offset + len(chunk)
-                    prompt_parts.append(
-                        f"Chunk {chunk_index} of {len(chunked_frames)} (frames {start_idx}-{end_idx})"
-                    )
+                prompt = "\n".join(prompt_parts)
+                images = [frame["payload"] for frame in staged_frames]
+                result = _call_ollama_vision(prompt, images)
 
-                    for idx, frame in enumerate(chunk, start=start_idx):
-                        ts = frame.get("timestamp")
-                        label = (
-                            f"Frame {idx} at {ts}s" if ts is not None else f"Frame {idx} (timestamp unavailable)"
-                        )
-                        prompt_parts.append(label)
-
-                    prompt = "\n".join(prompt_parts)
-                    images = [frame["payload"] for frame in chunk]
-                    chunk_result = _call_ollama_vision(prompt, images)
-                    chunk_responses.append(f"Chunk {chunk_index}/{len(chunked_frames)}: {chunk_result}")
-
-                    frame_offset += len(chunk)
-
-                combined_result = "\n\n".join(chunk_responses)
                 logger.info(
                     {
                         "message": "Vision video inference response (ollama generate)",
                         "model": model_name,
                         "base_url": _ollama_root_url(),
                         "attempt": attempt + 1,
-                        "chunks": len(chunked_frames),
+                        "chunks": 1,
+                        "frame_count": len(staged_frames),
                     }
                 )
-                return combined_result
+                return result
 
             message_content = [
                 {
