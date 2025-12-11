@@ -44,7 +44,6 @@ class VectorStore:
         node_label: str = "DocumentChunk",
         text_node_property: str = "text",
         embedding_node_property: str = "embedding",
-        metadata_node_property: str = "metadata",
         on_source_deleted: Optional[Callable[[str], None]] = None
     ):
         """Initialize the vector store.
@@ -59,7 +58,6 @@ class VectorStore:
             node_label: Label used for stored chunks
             text_node_property: Node property containing the chunk text
             embedding_node_property: Node property containing embedding vectors
-            metadata_node_property: Node property containing document metadata
             on_source_deleted: Optional callback when a source is deleted
         """
         try:
@@ -71,7 +69,6 @@ class VectorStore:
             self.node_label = node_label
             self.text_node_property = text_node_property
             self.embedding_node_property = embedding_node_property
-            self.metadata_node_property = metadata_node_property
             self.embeddings = embeddings or OllamaEmbeddings(
                 model=os.getenv("EMBEDDING_MODEL", "qwen3-embedding:8b"),
                 base_url=self._get_embedding_base_url(),
@@ -108,7 +105,6 @@ class VectorStore:
             index_name=self.index_name,
             text_node_property=self.text_node_property,
             embedding_node_property=self.embedding_node_property,
-            metadata_node_property=self.metadata_node_property,
             node_label=self.node_label,
         )
         logger.debug({
@@ -335,7 +331,7 @@ class VectorStore:
         try:
             delete_query = f"""
             MATCH (n:{self.node_label})
-            WHERE n.{self.metadata_node_property}.source = $collection_name
+            WHERE n.source = $collection_name
             WITH collect(n) AS nodes
             UNWIND nodes AS node
             DETACH DELETE node
