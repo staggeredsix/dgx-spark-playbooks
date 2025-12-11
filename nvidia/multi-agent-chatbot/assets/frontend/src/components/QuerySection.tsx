@@ -34,6 +34,8 @@ function resolveMediaSrc(raw: string | undefined | null): string | null {
 
   if (/^(data:(?:image|video)\/|https?:\/\/|blob:)/i.test(trimmed)) return trimmed;
 
+  if (trimmed.startsWith("/api/")) return trimmed;
+
   if (trimmed.startsWith("/")) return buildBackendUrl(trimmed);
 
   return null;

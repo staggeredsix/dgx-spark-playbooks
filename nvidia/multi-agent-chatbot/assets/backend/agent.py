@@ -20,6 +20,7 @@ import asyncio
 import contextlib
 import json
 import os
+import re
 from typing import AsyncIterator, List, Dict, Any, TypedDict, Optional, Callable, Awaitable
 
 from langchain_core.messages import HumanMessage, AIMessage, AnyMessage, SystemMessage, ToolMessage, ToolCall
@@ -354,9 +355,29 @@ class ChatAgent:
                                 f'<a href="{stored_video_url}" download="{download_name}">Download video</a>',
                             ])
                             tool_result["video_url"] = stored_video_url
-                            tool_result["video_markdown"] = video_markdown or fallback_video_markdown
+                            updated_video_markdown = video_markdown or fallback_video_markdown
+
+                            if video_markdown:
+                                updated_video_markdown = video_markdown
+                                updated_video_markdown = re.sub(
+                                    r'src=["\'](?:data:video[^"\']+|/[^"\']+)["\']',
+                                    f'src="{stored_video_url}"',
+                                    updated_video_markdown,
+                                    flags=re.IGNORECASE,
+                                )
+                                updated_video_markdown = re.sub(
+                                    r'\((data:video[^)]+|/[^)]+)\)',
+                                    f'({stored_video_url})',
+                                    updated_video_markdown,
+                                    flags=re.IGNORECASE,
+                                )
+
+                                if stored_video_url not in updated_video_markdown:
+                                    updated_video_markdown = fallback_video_markdown
+
+                            tool_result["video_markdown"] = updated_video_markdown
                             tool_result.pop("video_base64", None)
-                            video_markdown = tool_result["video_markdown"]
+                            video_markdown = updated_video_markdown
 
                     if tool_result.get("video_markdown"):
                         await self.stream_callback({
