@@ -83,13 +83,32 @@ export default function Home() {
   useEffect(() => {
     if (warmupComplete || loadingDismissed) return;
 
-    const sequence = ['.', '..', '...', '....'];
+    const sequence = [
+      '.',
+      '..',
+      '...',
+      '....',
+      '.....',
+      '......',
+      '.......',
+      '........',
+      '.........',
+      '..........',
+      '.........',
+      '........',
+      '.......',
+      '......',
+      '.....',
+      '....',
+      '...',
+      '..'
+    ];
     let index = 0;
 
     const interval = setInterval(() => {
       index = (index + 1) % sequence.length;
       setEllipsis(sequence[index]);
-    }, 450);
+    }, 420);
 
     return () => clearInterval(interval);
   }, [warmupComplete, loadingDismissed]);
