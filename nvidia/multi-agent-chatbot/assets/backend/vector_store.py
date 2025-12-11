@@ -32,6 +32,10 @@ from neo4j.exceptions import ServiceUnavailable
 load_dotenv()
 
 
+class EmbeddingServiceUnavailable(Exception):
+    """Raised when the embedding backend cannot be reached after retries."""
+
+
 class VectorStore:
     """Vector store for document embedding and retrieval using Neo4j."""
 
@@ -72,7 +76,7 @@ class VectorStore:
             self.text_node_property = text_node_property
             self.embedding_node_property = embedding_node_property
             self.embeddings = embeddings or OllamaEmbeddings(
-                model=os.getenv("EMBEDDING_MODEL", "qwen3-embedding:8b"),
+                model=self._get_embedding_model(),
                 base_url=self._get_embedding_base_url(),
             )
             self.on_source_deleted = on_source_deleted
@@ -130,6 +134,15 @@ class VectorStore:
                     "max_attempts": max_attempts,
                     "backoff_seconds": backoff
                 })
+            except EmbeddingServiceUnavailable as exc:
+                last_error = exc
+                logger.warning({
+                    "message": "Embedding service not ready, will retry",
+                    "attempt": attempt,
+                    "max_attempts": max_attempts,
+                    "backoff_seconds": backoff,
+                    "error": str(exc)
+                })
             except Exception as exc:  # pragma: no cover - unexpected initialization errors
                 logger.error({
                     "message": "Unexpected error initializing Neo4j vector store",
@@ -147,7 +160,7 @@ class VectorStore:
         raise last_error
 
     def _ensure_vector_index(self):
-        dimensions = len(self.embeddings.embed_query("test"))
+        dimensions = self._get_embedding_dimensions()
         index_query = f"""
         CREATE VECTOR INDEX {self.index_name} IF NOT EXISTS
         FOR (n:{self.node_label})
@@ -168,6 +181,38 @@ class VectorStore:
                 "node_label": self.node_label,
                 "dimensions": dimensions
             })
+
+    def _get_embedding_dimensions(self) -> int:
+        max_attempts = int(os.getenv("EMBEDDING_INIT_RETRIES", "5"))
+        backoff = float(os.getenv("EMBEDDING_INIT_BACKOFF", "2"))
+        last_error = None
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                dimensions = len(self.embeddings.embed_query("test"))
+                logger.debug({
+                    "message": "Embedding model responded successfully",
+                    "dimensions": dimensions,
+                    "attempt": attempt
+                })
+                return dimensions
+            except Exception as exc:
+                last_error = exc
+                logger.warning({
+                    "message": "Embedding service not ready, will retry",
+                    "attempt": attempt,
+                    "max_attempts": max_attempts,
+                    "backoff_seconds": backoff,
+                    "error": str(exc)
+                })
+                time.sleep(backoff)
+
+        logger.error({
+            "message": "Failed to contact embedding service after retries",
+            "attempts": max_attempts,
+            "error": str(last_error) if last_error else None
+        })
+        raise EmbeddingServiceUnavailable(last_error or "Embedding service unavailable") from last_error
 
     def _load_documents(self, file_paths: List[str] = None, input_dir: str = None) -> List[str]:
         try:
@@ -295,6 +340,12 @@ class VectorStore:
         base_url = os.getenv("LLM_API_BASE_URL", "http://localhost:11434/v1").rstrip("/")
         sanitized_url = base_url.removesuffix("/v1").removesuffix("/api")
         return sanitized_url
+
+    def _get_embedding_model(self) -> str:
+        configured_model = os.getenv("EMBEDDING_MODEL", "").strip()
+        if not configured_model:
+            return "qwen3-embedding:8b"
+        return configured_model
 
     def index_documents(self, documents: List[Document]) -> List[Document]:
         try:
