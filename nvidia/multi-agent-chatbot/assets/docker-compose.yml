@@ -25,11 +25,16 @@ services:
     volumes:
       - ./backend:/app
     depends_on:
-      - flux-service
-      - video-service
-      - postgres
-      - neo4j
-      - ollama
+      flux-service:
+        condition: service_started
+      video-service:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      ollama:
+        condition: service_started
     restart: unless-stopped
     environment:
       - POSTGRES_HOST=postgres
