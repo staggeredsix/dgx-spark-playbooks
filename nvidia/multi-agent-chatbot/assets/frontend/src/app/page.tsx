@@ -62,7 +62,10 @@ export default function Home() {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [activePane, setActivePane] = useState<'chat' | 'testing'>('chat');
-  const [warmupComplete, setWarmupComplete] = useState(false);
+  const [warmupComplete, setWarmupComplete] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("warmupComplete") === "true";
+  });
   const [ellipsis, setEllipsis] = useState('.');
   const [loadingMessages, setLoadingMessages] = useState<string[]>([]);
   const [currentLoadingMessage, setCurrentLoadingMessage] = useState(0);
@@ -70,6 +73,12 @@ export default function Home() {
   const [showEscapeOption, setShowEscapeOption] = useState(false);
   const [loadingDismissed, setLoadingDismissed] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (warmupComplete) {
+      localStorage.setItem("warmupComplete", "true");
+    }
+  }, [warmupComplete]);
 
   useEffect(() => {
     if (warmupComplete || loadingDismissed) return;
