@@ -17,7 +17,7 @@ This project was built to be customizable, serving as a framework that developer
 
   - **Easily Swappable Models**: Models are loaded and served with Ollama over the OpenAI-compatible API. Any OpenAI-compatible model available in Ollama can be integrated into the project.
 
-  - **Vector Indexing & Retrieval**: Qdrant provides document retrieval without the jemalloc dependency.
+  - **Vector Indexing & Retrieval**: Neo4j provides graph-backed document retrieval without the jemalloc dependency.
 
   - **Real-time LLM Streaming**: We present custom LLM-streaming infrastructure, making it easy for developers to stream supervisor responses from any OpenAI compatible model. 
 
@@ -33,7 +33,7 @@ This project was built to be customizable, serving as a framework that developer
 | gpt-oss:120b            | NVIDIA via Ollama   | Chat       | Default supervisor/chat model |
 | qwen3-coder:30b         | Alibaba via Ollama  | Coding     | Used by code generation MCP tool |
 | ministral-3:14b         | Mistral via Ollama  | Image      | Vision model for image understanding |
-| qwen3-embedding:8b      | Alibaba via Ollama  | Embedding  | Embedding model for Qdrant |
+| qwen3-embedding:8b      | Alibaba via Ollama  | Embedding  | Embedding model for Neo4j |
 
 Environment variables in `docker-compose.yml` wire these defaults to the correct agents:
 
@@ -74,7 +74,7 @@ chmod +x model_download.sh
 > **FLUX image generation model**: If you opt in to the FLUX image pipeline, run `scripts/download_flux.sh` from this directory. By default it writes the weights to `assets/flux-schnell` (or a custom path you pass as the first argument) and will skip downloading if the model is already present.
 
 #### 4. Start the docker containers for the application
-This step starts the Ollama runtime, Qdrant, the backend API server, and the frontend UI. This step can take 10 to 20 minutes depending on network speed.
+This step starts the Ollama runtime, Neo4j, the backend API server, and the frontend UI. This step can take 10 to 20 minutes depending on network speed.
 ```bash
 docker compose up -d --build
 ```
@@ -118,8 +118,8 @@ docker exec -it backend curl -s http://localhost:8000/health
 # Verify models are visible in the Ollama runtime
 docker exec -it ollama ollama list
 
-# Spot-check Qdrant status
-docker exec -it qdrant curl -s http://localhost:6333/health | jq
+# Spot-check Neo4j status
+docker exec -it neo4j cypher-shell -u neo4j -p chatbot_neo4j 'RETURN 1'
 ```
 
 ### 6. Try out the sample prompts
