@@ -47,7 +47,10 @@ def _resolve_hf_token(override: Optional[str]) -> Optional[str]:
 
 def _maybe_precache_model(token: Optional[str]) -> Optional[str]:
     if not WAN_PRECACHE:
-        logger.info("Skipping Wan2.2 pre-cache; inference will stream from the Hugging Face Hub.")
+        logger.info(
+            "Skipping Wan2.2 pre-cache; inference will stream from the Hugging Face Hub. "
+            "WAN2.2 inference should be run locally."
+        )
         return None
 
     if not token:
