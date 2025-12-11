@@ -32,6 +32,7 @@
   left: 0;
   right: 0;
   bottom: 0;
+  justify-content: center;
 }
 
 .mainColumn {
@@ -40,6 +41,7 @@
   width: 100%;
   padding: 12px 12px 0 12px;
   gap: 12px;
+  align-items: center;
 }
 
 .testingPane {
@@ -74,6 +76,7 @@
   flex: 1;
   min-height: 0;
   display: flex;
+  justify-content: center;
 }
 
 .documentUploadContainer {
@@ -182,12 +185,14 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  align-items: flex-start;
+  align-items: center;
   border: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: center;
 }
 
 .startupRow {
   display: flex;
+  flex-direction: column;
   gap: 8px;
   align-items: center;
 }
@@ -195,6 +200,7 @@
 .startupSubtext {
   color: #cbd5e1;
   font-size: 0.95rem;
+  text-align: center;
 }
 
 .startupTitle {
@@ -206,11 +212,12 @@
 
 .startupEllipsis {
   font-size: 1.2rem;
-  min-width: 52px;
+  min-width: 110px;
   display: inline-flex;
-  justify-content: flex-start;
+  justify-content: center;
   color: #86efac;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 1px;
 }
 
 .escapeContainer {
@@ -218,6 +225,7 @@
   flex-direction: column;
   gap: 10px;
   margin-top: 4px;
+  align-items: center;
 }
 
 .escapeMessage {
@@ -235,6 +243,7 @@
   cursor: pointer;
   transition: transform 0.1s ease, box-shadow 0.2s ease, background-color 0.2s ease;
   box-shadow: 0 10px 25px rgba(56, 189, 248, 0.25);
+  align-self: center;
 }
 
 .escapeButton:hover {

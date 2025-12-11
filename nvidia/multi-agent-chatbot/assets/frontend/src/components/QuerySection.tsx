@@ -790,6 +790,16 @@ export default function QuerySection({
           const videoSrc = resolveMediaSrc(message.videoSrc) || extractVideoSrc(message.content);
           const cleanedContent = message.isVideo ? stripVideoMarkup(message.content) : message.content;
           const shouldRenderMarkdown = Boolean(cleanedContent?.trim());
+          const imageSrc = message.isImage
+            ? (() => {
+                const markdownMatch = cleanedContent?.match(/!\[[^\]]*]\(([^)]+)\)/);
+                return (
+                  formatImageSrc(markdownMatch?.[1]) ||
+                  formatImageSrc(message.content) ||
+                  formatImageSrc(cleanedContent)
+                );
+              })()
+            : null;
 
           if (!message.content?.trim() && !videoSrc) return null;
 
@@ -804,6 +814,19 @@ export default function QuerySection({
 
             <div className={`${styles.message} ${isHuman ? styles.userMessage : styles.assistantMessage}`}>
               <div className={styles.markdown}>
+                {imageSrc && (
+                  <div className={styles.imageWrapper}>
+                    <img
+                      src={imageSrc}
+                      alt="Generated image"
+                      loading="lazy"
+                      onError={(event) => {
+                        event.currentTarget.onerror = null;
+                        event.currentTarget.alt = "Unable to load image";
+                      }}
+                    />
+                  </div>
+                )}
                 {videoSrc && (
                   <div className={styles.videoWrapper}>
                     <video controls src={videoSrc} className={styles.videoPlayer}>
