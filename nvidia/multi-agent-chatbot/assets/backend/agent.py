@@ -20,6 +20,7 @@ import asyncio
 import contextlib
 import json
 import os
+import re
 from typing import AsyncIterator, List, Dict, Any, TypedDict, Optional, Callable, Awaitable
 
 from langchain_core.messages import HumanMessage, AIMessage, AnyMessage, SystemMessage, ToolMessage, ToolCall
@@ -316,9 +317,28 @@ class ChatAgent:
                 else:
                     tool_result = await self.tools_by_name[tool_call["name"]].ainvoke(tool_call["args"])
                 if isinstance(tool_result, dict):
-                    raw_image = tool_result.get("image_base64") or tool_result.get("image")
+                    def _ensure_data_uri(value: Optional[str], mime: str) -> Optional[str]:
+                        if not value:
+                            return value
+
+                        if value.startswith("data:"):
+                            return value
+
+                        compact = value.strip().replace("\n", "")
+                        if len(compact) > 100 and re.fullmatch(r"[A-Za-z0-9+/=]+", compact):
+                            return f"data:{mime};base64,{compact}"
+
+                        return value
+
+                    raw_image = _ensure_data_uri(
+                        tool_result.get("image_base64") or tool_result.get("image"),
+                        "image/png",
+                    )
                     image_markdown = tool_result.get("image_markdown")
                     stored_image_url = None
+
+                    if raw_image:
+                        tool_result["image_base64"] = raw_image
 
                     if raw_image and not image_markdown:
                         image_markdown = f"![Generated image]({raw_image})"
@@ -342,11 +362,15 @@ class ChatAgent:
                         })
 
                     video_markdown = tool_result.get("video_markdown")
-                    video_base64 = tool_result.get("video_base64")
+                    video_base64 = _ensure_data_uri(
+                        tool_result.get("video_base64"),
+                        "video/mp4",
+                    )
                     stored_video_url = None
                     download_name = tool_result.get("video_filename", "wan-video.mp4")
 
                     if video_base64:
+                        tool_result["video_base64"] = video_base64
                         stored_video_url = persist_data_uri_to_file(video_base64, "wan-video")
                         if stored_video_url:
                             fallback_video_markdown = " ".join([
@@ -354,9 +378,29 @@ class ChatAgent:
                                 f'<a href="{stored_video_url}" download="{download_name}">Download video</a>',
                             ])
                             tool_result["video_url"] = stored_video_url
-                            tool_result["video_markdown"] = video_markdown or fallback_video_markdown
+                            updated_video_markdown = video_markdown or fallback_video_markdown
+
+                            if video_markdown:
+                                updated_video_markdown = video_markdown
+                                updated_video_markdown = re.sub(
+                                    r'src=["\'](?:data:video[^"\']+|/[^"\']+)["\']',
+                                    f'src="{stored_video_url}"',
+                                    updated_video_markdown,
+                                    flags=re.IGNORECASE,
+                                )
+                                updated_video_markdown = re.sub(
+                                    r'\((data:video[^)]+|/[^)]+)\)',
+                                    f'({stored_video_url})',
+                                    updated_video_markdown,
+                                    flags=re.IGNORECASE,
+                                )
+
+                                if stored_video_url not in updated_video_markdown:
+                                    updated_video_markdown = fallback_video_markdown
+
+                            tool_result["video_markdown"] = updated_video_markdown
                             tool_result.pop("video_base64", None)
-                            video_markdown = tool_result["video_markdown"]
+                            video_markdown = updated_video_markdown
 
                     if tool_result.get("video_markdown"):
                         await self.stream_callback({
