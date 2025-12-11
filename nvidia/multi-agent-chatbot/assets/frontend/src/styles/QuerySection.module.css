@@ -258,6 +258,10 @@
 .markdown :global(a) { text-decoration: underline; }
 .markdown :global(img) { max-width: 100%; height: auto; border-radius: 8px; }
 
+.imageWrapper {
+  margin-bottom: 0.6rem;
+}
+
 /* Inline code */
 .markdown :global(code) {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
