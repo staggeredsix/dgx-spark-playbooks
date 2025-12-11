@@ -1084,17 +1084,13 @@ export default function Sidebar({
                       />
                     </label>
                     <div className={styles.modalField}>
-                      <span>Download FLUX model</span>
-                      <p className={styles.helpText}>
-                        Pre-download the configured FLUX model into the Hugging Face cache for offline image generation.
-                      </p>
                       <button
                         type="button"
                         className={styles.secondaryButton}
                         onClick={handleLoadFluxModel}
                         disabled={isDownloadingFlux}
                       >
-                        {isDownloadingFlux ? "Loading FLUX..." : "Load FLUX"}
+                        {isDownloadingFlux ? "Loading FLUX..." : "Load the flux model, this will take a while"}
                       </button>
                       {fluxLoadingMessage && (
                         <div className={styles.modalStatus}>{fluxLoadingMessage}</div>

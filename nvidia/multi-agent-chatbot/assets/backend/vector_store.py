@@ -50,7 +50,9 @@ class VectorStore:
         node_label: str = "DocumentChunk",
         text_node_property: str = "text",
         embedding_node_property: str = "embedding",
-        on_source_deleted: Optional[Callable[[str], None]] = None
+        on_source_deleted: Optional[Callable[[str], None]] = None,
+        embedding_init_retries: Optional[int] = None,
+        embedding_init_backoff: Optional[float] = None,
     ):
         """Initialize the vector store.
 
@@ -77,6 +79,16 @@ class VectorStore:
             self.embedding_node_property = embedding_node_property
             self.embedding_model = self._get_embedding_model()
             self.embedding_base_url = self._get_embedding_base_url()
+            self.embedding_init_retries = (
+                embedding_init_retries
+                if embedding_init_retries is not None
+                else int(os.getenv("EMBEDDING_INIT_RETRIES", "15"))
+            )
+            self.embedding_init_backoff = (
+                embedding_init_backoff
+                if embedding_init_backoff is not None
+                else float(os.getenv("EMBEDDING_INIT_BACKOFF", "2.5"))
+            )
             self.embeddings = embeddings or OllamaEmbeddings(
                 model=self.embedding_model,
                 base_url=self.embedding_base_url,
@@ -185,9 +197,15 @@ class VectorStore:
             })
 
     def _get_embedding_dimensions(self) -> int:
-        max_attempts = int(os.getenv("EMBEDDING_INIT_RETRIES", "15"))
-        backoff = float(os.getenv("EMBEDDING_INIT_BACKOFF", "2.5"))
+        max_attempts = self.embedding_init_retries
+        backoff = self.embedding_init_backoff
         last_error = None
+
+        logger.info({
+            "message": "Probing embedding service for vector dimensions",
+            "max_attempts": max_attempts,
+            "backoff_seconds": backoff,
+        })
 
         for attempt in range(1, max_attempts + 1):
             try:
@@ -464,7 +482,8 @@ def create_vector_store_with_config(
     uri: str = "neo4j://neo4j:7687",
     username: str = "neo4j",
     password: str = "chatbot_neo4j",
-    database: str = "neo4j"
+    database: str = "neo4j",
+    **kwargs,
 ) -> VectorStore:
     """Factory function to create a VectorStore with ConfigManager integration."""
 
@@ -480,5 +499,6 @@ def create_vector_store_with_config(
         username=username,
         password=password,
         database=database,
-        on_source_deleted=handle_source_deleted
+        on_source_deleted=handle_source_deleted,
+        **kwargs,
     )

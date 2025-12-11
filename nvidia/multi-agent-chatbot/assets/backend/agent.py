@@ -316,10 +316,17 @@ class ChatAgent:
                 else:
                     tool_result = await self.tools_by_name[tool_call["name"]].ainvoke(tool_call["args"])
                 if isinstance(tool_result, dict):
-                    if tool_result.get("image_markdown"):
+                    raw_image = tool_result.get("image_base64") or tool_result.get("image")
+                    image_markdown = tool_result.get("image_markdown")
+                    if raw_image and not image_markdown:
+                        image_markdown = f"![Generated image]({raw_image})"
+                        tool_result["image_markdown"] = image_markdown
+                        tool_result.setdefault("image_base64", raw_image)
+
+                    if image_markdown:
                         await self.stream_callback({
                             "type": "image",
-                            "content": tool_result.get("image_markdown"),
+                            "content": image_markdown,
                             "raw": tool_result.get("image_base64"),
                         })
 
