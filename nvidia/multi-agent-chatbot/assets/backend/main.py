@@ -34,6 +34,7 @@ from contextlib import asynccontextmanager
 from typing import List, Optional, Dict
 
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from huggingface_hub import snapshot_download
 
@@ -45,6 +46,7 @@ from postgres_storage import PostgreSQLConversationStorage
 from model_management import ensure_model_available_async
 from utils import process_and_ingest_files_background
 from utils_media import (
+    DEFAULT_GENERATED_MEDIA_DIR,
     collect_remote_media_from_text,
     merge_media_payloads,
     process_uploaded_media,
@@ -148,6 +150,16 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+
+GENERATED_MEDIA_DIR = DEFAULT_GENERATED_MEDIA_DIR
+GENERATED_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+
+app.mount(
+    "/generated-media",
+    StaticFiles(directory=GENERATED_MEDIA_DIR, check_dir=False),
+    name="generated-media",
 )
 
 

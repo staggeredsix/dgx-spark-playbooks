@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import base64
 import json
+import mimetypes
 import os
 import re
 import tempfile
+import uuid
 from pathlib import Path
-from typing import Iterable, List, Sequence
+from typing import Iterable, List, Optional, Sequence
 
 import cv2  # type: ignore
 import requests
@@ -25,10 +27,60 @@ MAX_DOWNLOAD_SIZE = 20 * 1024 * 1024  # 20 MB safeguard
 MAX_UPLOAD_SIZE = MAX_DOWNLOAD_SIZE
 MEDIA_URL_PATTERN = re.compile(r"https?://[^\s>]+", re.IGNORECASE)
 
+DEFAULT_GENERATED_MEDIA_DIR = Path(
+    os.getenv("GENERATED_MEDIA_DIR", "/tmp/chatbot-generated-media")
+)
+GENERATED_MEDIA_PREFIX = "/generated-media"
+
 
 def _to_data_uri(raw_bytes: bytes, mime_type: str) -> str:
     encoded = base64.b64encode(raw_bytes).decode("utf-8")
     return f"data:{mime_type};base64,{encoded}"
+
+
+def persist_data_uri_to_file(
+    data_uri: str, prefix: str, media_root: Path = DEFAULT_GENERATED_MEDIA_DIR
+) -> Optional[str]:
+    """Persist a base64 data URI to disk and return a URL path for serving.
+
+    Args:
+        data_uri: Base64-encoded data URI (e.g., ``data:image/png;base64,...``).
+        prefix: Filename prefix to distinguish media types.
+        media_root: Root directory for generated media files.
+
+    Returns:
+        URL path (relative to the API host) for the stored media, or ``None`` if
+        the input cannot be decoded.
+    """
+
+    if not data_uri or not data_uri.startswith("data:"):
+        return None
+
+    try:
+        header, encoded = data_uri.split(",", 1)
+    except ValueError:
+        return None
+
+    if ";base64" not in header:
+        return None
+
+    mime_type = header[5:].split(";", 1)[0].strip()
+    if not (mime_type.startswith("image/") or mime_type.startswith("video/")):
+        return None
+
+    extension = mimetypes.guess_extension(mime_type) or (
+        ".png" if mime_type.startswith("image/") else ".mp4"
+    )
+
+    try:
+        media_root.mkdir(parents=True, exist_ok=True)
+        filename = f"{prefix}-{uuid.uuid4().hex}{extension}"
+        path = media_root / filename
+        path.write_bytes(base64.b64decode(encoded))
+    except Exception:
+        return None
+
+    return f"{GENERATED_MEDIA_PREFIX}/{path.name}"
 
 
 def _extract_video_frames(video_path: Path, max_frames: int = 60) -> List[dict]:
