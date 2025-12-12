@@ -19,7 +19,8 @@ from PIL import Image
 logger = logging.getLogger("flux-service")
 logging.basicConfig(level=logging.INFO)
 
-FLUX_MODEL_ID = os.environ.get("FLUX_MODEL_ID", "black-forest-labs/FLUX.1-schnell")
+DEFAULT_FLUX_MODEL_ID = "black-forest-labs/FLUX.1-schnell"
+FLUX_MODEL_ID = os.environ.get("FLUX_MODEL_ID", DEFAULT_FLUX_MODEL_ID)
 FLUX_MODEL_DIR = os.environ.get("FLUX_MODEL_DIR")
 FLUX_MODEL_SUBDIR = os.environ.get("FLUX_MODEL_SUBDIR")
 HF_TOKEN = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACEHUB_API_TOKEN")
@@ -49,6 +50,7 @@ class HealthResponse(BaseModel):
 _flux_pipeline: FluxPipeline | None = None
 _provider = "diffusers"
 _model_id = FLUX_MODEL_ID
+_model_location: str | None = None
 _model_cache = os.getenv("HF_HOME", os.path.join(os.path.expanduser("~"), ".cache", "huggingface"))
 
 
@@ -97,15 +99,15 @@ def _resolve_model_id() -> str:
 def _ensure_pipeline(token_override: str | None = None) -> FluxPipeline:
     global _flux_pipeline
     if _flux_pipeline is None:
-        global _model_id
-        _model_id = _resolve_model_id()
+        global _model_id, _model_location
+        _model_location = _resolve_model_id()
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA GPU is required for the FLUX pipeline but was not detected.")
-        logger.info("Loading FluxPipeline model %s", _model_id)
+        logger.info("Loading FluxPipeline model %s from %s", _model_id, _model_location)
         start = time.perf_counter()
         hf_token = token_override or HF_TOKEN
         pipeline = FluxPipeline.from_pretrained(
-            _model_id,
+            _model_location,
             torch_dtype=torch.bfloat16,
             token=hf_token,
             cache_dir=_model_cache,
@@ -143,12 +145,15 @@ async def generate_image(request: GenerateImageRequest):
         logger.exception("Pipeline initialization failed")
         raise HTTPException(status_code=500, detail=str(exc))
 
-    if request.model and request.model != _model_id:
-        logger.warning(
-            "Requested model %s does not match the loaded model %s; using the loaded model. Restart the service to switch models.",
-            request.model,
-            _model_id,
-        )
+    if request.model:
+        allowed_models = {value for value in (_model_id, _model_location, DEFAULT_FLUX_MODEL_ID) if value}
+        if request.model not in allowed_models:
+            logger.warning(
+                "Requested model %s does not match the configured model %s (loaded from %s); using the loaded model. Restart the service to switch models.",
+                request.model,
+                _model_id,
+                _model_location,
+            )
 
     generator = None
     if request.seed is not None:

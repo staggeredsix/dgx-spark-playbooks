@@ -122,8 +122,6 @@ def _maybe_precache_model(token: Optional[str]) -> Optional[str]:
             repo_type="model",
             token=token,
             local_dir=WAN_CKPT_DIR,
-            local_dir_use_symlinks=False,
-            allow_patterns=None,
         )
         logger.info("Cached Wan2.2 checkpoints at %s", WAN_CKPT_DIR)
         return WAN_CKPT_DIR
@@ -185,8 +183,6 @@ def _ensure_checkpoints_available(token: Optional[str]) -> None:
             repo_type="model",
             token=token,
             local_dir=WAN_CKPT_DIR,
-            local_dir_use_symlinks=False,
-            allow_patterns=None,
         )
     except Exception as exc:
         logger.exception("Failed to download Wan2.2 checkpoints")

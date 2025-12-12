@@ -296,6 +296,8 @@ class ChatAgent:
                     state["process_image_used"] = True
                 else:
                     tool_result = await self.tools_by_name[tool_call["name"]].ainvoke(tool_call["args"])
+                payload_for_model = tool_result
+
                 if isinstance(tool_result, dict):
                     raw_image = tool_result.get("image_base64") or tool_result.get("image")
                     image_markdown = tool_result.get("image_markdown")
@@ -312,6 +314,7 @@ class ChatAgent:
                             image_markdown = f"![Generated image]({stored_image_url})"
                             tool_result["image_markdown"] = image_markdown
                             tool_result["image_url"] = stored_image_url
+                            tool_result["image"] = stored_image_url
                             tool_result.pop("image_base64", None)
 
                     if image_markdown:
@@ -321,6 +324,11 @@ class ChatAgent:
                             "raw": stored_image_url or tool_result.get("image_base64"),
                             "url": stored_image_url,
                         })
+
+                        payload_for_model = {k: v for k, v in tool_result.items() if k not in {"image_base64", "image"}}
+                        if stored_image_url:
+                            payload_for_model.setdefault("image_url", stored_image_url)
+                            payload_for_model.setdefault("image_markdown", image_markdown)
 
                     video_markdown = tool_result.get("video_markdown")
                     video_base64 = tool_result.get("video_base64")
@@ -373,7 +381,7 @@ class ChatAgent:
                 elif isinstance(tool_result, str):
                     content = tool_result
                 else:
-                    content = json.dumps(tool_result)
+                    content = json.dumps(payload_for_model)
                 if content:
                     await self.stream_callback({"type": "tool_token", "data": content})
             except Exception as e:

@@ -38,7 +38,6 @@ path = snapshot_download(
     repo_type="model",
     token=token,
     local_dir=str(target_dir),
-    local_dir_use_symlinks=False,
 )
 print(f"FLUX model ready at: {path}")
 PY
