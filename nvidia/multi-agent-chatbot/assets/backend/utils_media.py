@@ -19,7 +19,6 @@ import uuid
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence
 
-import cv2  # type: ignore
 import requests
 from fastapi import UploadFile
 
@@ -83,51 +82,6 @@ def persist_data_uri_to_file(
     return f"{GENERATED_MEDIA_PREFIX}/{path.name}"
 
 
-def _extract_video_frames(video_path: Path, max_frames: int = 60) -> List[dict]:
-    """Extract representative frames from a video file with timestamps.
-
-    To keep uploads lightweight and avoid overwhelming the backend or VLM payloads,
-    we cap extraction to ``max_frames`` frames while sampling evenly across the
-    full duration.
-    """
-    cap = cv2.VideoCapture(str(video_path))
-    if not cap.isOpened():
-        raise ValueError("Unable to open uploaded video for processing")
-
-    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
-    frames: List[dict] = []
-
-    fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
-    stride = max(1, frame_count // max_frames) if frame_count else 1
-
-    if frame_count == 0:
-        cap.release()
-        raise ValueError("Uploaded video contains no readable frames")
-
-    for idx in range(0, frame_count, stride):
-        if len(frames) >= max_frames:
-            break
-        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-        success, frame = cap.read()
-        if not success:
-            continue
-        success, buffer = cv2.imencode(".jpg", frame)
-        if not success:
-            continue
-        timestamp = round(idx / fps, 2)
-        frames.append({
-            "timestamp": timestamp,
-            "data": _to_data_uri(buffer.tobytes(), "image/jpeg"),
-        })
-
-    cap.release()
-
-    if not frames:
-        raise ValueError("No frames could be extracted from the uploaded video")
-
-    return frames
-
-
 def _download_url(url: str) -> requests.Response:
     response = requests.get(url, timeout=15, stream=True)
     response.raise_for_status()
@@ -178,19 +132,47 @@ async def process_uploaded_media(file: UploadFile) -> List[str | dict]:
         return [_to_data_uri(content, content_type)]
 
     if content_type.startswith("video/"):
-        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename or "video").suffix) as tmp:
-            tmp.write(content)
-            tmp_path = Path(tmp.name)
-
-        try:
-            return _extract_video_frames(tmp_path)
-        finally:
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
+        return _extract_video_frames(content, content_type)
 
     raise ValueError("Unsupported media type. Please upload an image or video file.")
+
+
+def _extract_video_frames(video_bytes: bytes, content_type: str) -> List[dict]:
+    """Extract every 4th frame from a video and attach timestamps for VLM analysis."""
+
+    import cv2  # noqa: WPS433 - imported lazily to avoid unnecessary dependency at startup
+
+    with tempfile.NamedTemporaryFile(suffix=mimetypes.guess_extension(content_type) or ".mp4") as tmp:
+        tmp.write(video_bytes)
+        tmp.flush()
+
+        capture = cv2.VideoCapture(tmp.name)
+        if not capture.isOpened():
+            raise ValueError("Unable to read uploaded video for frame extraction")
+
+        fps = capture.get(cv2.CAP_PROP_FPS) or 0
+        frames: List[dict] = []
+        frame_idx = 0
+
+        success, frame = capture.read()
+        while success:
+            if frame_idx % 4 == 0:
+                timestamp = round(frame_idx / fps, 2) if fps else None
+                ok, buffer = cv2.imencode(".jpg", frame)
+                if ok:
+                    frames.append({
+                        "timestamp": timestamp,
+                        "data": _to_data_uri(buffer.tobytes(), "image/jpeg"),
+                    })
+            frame_idx += 1
+            success, frame = capture.read()
+
+        capture.release()
+
+    if not frames:
+        raise ValueError("No frames could be extracted from the uploaded video")
+
+    return frames
 
 
 def _validate_media_response(response: requests.Response) -> bool:

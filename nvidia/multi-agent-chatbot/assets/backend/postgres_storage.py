@@ -139,7 +139,7 @@ class PostgreSQLConversationStorage:
                 
         except Exception as e:
             logger.error(f"Error ensuring database exists: {e}")
-            pass
+            raise
 
     async def close(self) -> None:
         """Close the connection pool and cleanup."""
