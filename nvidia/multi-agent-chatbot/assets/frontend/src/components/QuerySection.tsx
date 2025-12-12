@@ -26,12 +26,81 @@ import WelcomeSection from "./WelcomeSection";
 
 const VIDEO_SOURCE_REGEX = /src=["'](data:video[^"']+|https?:\/\/[^"']+|\/[^"']+)["']/i;
 
+function decodeBase64Payload(payload: string): Uint8Array | null {
+  const compact = payload.replace(/\s+/g, "");
+  if (compact.length <= 16 || compact.length % 4 !== 0) return null;
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(compact)) return null;
+
+  try {
+    if (typeof atob === "function") {
+      const binary = atob(compact);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return bytes;
+    }
+
+    const maybeBuffer = (globalThis as unknown as { Buffer?: { from?: (value: string, encoding: string) => unknown } }).Buffer;
+    if (maybeBuffer?.from) {
+      const decoded = maybeBuffer.from(compact, "base64");
+      return decoded instanceof Uint8Array ? new Uint8Array(decoded) : null;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function isLikelyValidImagePayload(mime: string, bytes: Uint8Array): boolean {
+  if (bytes.length < 4) return false;
+
+  const lowerMime = mime.toLowerCase();
+  if (lowerMime.includes("png")) {
+    return (
+      bytes.length >= 8 &&
+      bytes[0] === 0x89 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x4e &&
+      bytes[3] === 0x47 &&
+      bytes[4] === 0x0d &&
+      bytes[5] === 0x0a &&
+      bytes[6] === 0x1a &&
+      bytes[7] === 0x0a
+    );
+  }
+
+  if (lowerMime.includes("jpeg") || lowerMime.includes("jpg")) {
+    return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[bytes.length - 2] === 0xff && bytes[bytes.length - 1] === 0xd9;
+  }
+
+  if (lowerMime.includes("gif")) {
+    return bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38;
+  }
+
+  if (lowerMime.includes("webp")) {
+    const riff = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
+    const webp = String.fromCharCode(bytes[8] ?? 0, bytes[9] ?? 0, bytes[10] ?? 0, bytes[11] ?? 0);
+    return riff === "RIFF" && webp === "WEBP";
+  }
+
+  return true;
+}
+
 function isValidDataUri(raw: string): boolean {
-  const match = raw.match(/^data:(image|video)\/[^;,]+;base64,(.+)$/i);
+  const match = raw.trim().match(/^data:(image|video)\/([^;,]+);base64,(.+)$/i);
   if (!match) return false;
 
-  const [, , payload] = match;
-  return payload.length > 16 && /^[A-Za-z0-9+/]+={0,2}$/.test(payload);
+  const [, category, mime, payload] = match;
+  const decoded = decodeBase64Payload(payload);
+  if (!decoded) return false;
+
+  if (category.toLowerCase() === "image") {
+    return isLikelyValidImagePayload(mime, decoded);
+  }
+
+  return true;
 }
 
 function resolveMediaSrc(raw: string | undefined | null): string | null {
@@ -61,7 +130,8 @@ function formatImageSrc(raw: string | undefined | null): string | null {
   const compact = trimmed.replace(/\s+/g, "");
   const looksLikeBase64 = compact.length > 100 && /^[A-Za-z0-9+/]+={0,2}$/.test(compact);
   if (looksLikeBase64) {
-    return `data:image/png;base64,${compact}`;
+    const dataUri = `data:image/png;base64,${compact}`;
+    return isValidDataUri(dataUri) ? dataUri : null;
   }
 
   return null;
@@ -285,9 +355,10 @@ export default function QuerySection({
             const embeddedImageSrc = markdownImageMatch?.[1];
             const formattedImageSrc = formatImageSrc(embeddedImageSrc || content);
             const dataUriMatch = content.match(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/);
+            const validDataUri = dataUriMatch && isValidDataUri(dataUriMatch[0]) ? dataUriMatch[0] : null;
             const normalizedContent =
-              (dataUriMatch || formattedImageSrc) && !content.includes("![") && !markdownImageMatch
-                ? `![Generated image](${dataUriMatch ? dataUriMatch[0] : formattedImageSrc})`
+              (validDataUri || formattedImageSrc) && !content.includes("![") && !markdownImageMatch
+                ? `![Generated image](${validDataUri ? validDataUri : formattedImageSrc})`
                 : content;
             const rawVideoSrc =
               typeof msg?.videoUrl === "string"
@@ -305,7 +376,8 @@ export default function QuerySection({
                   ? "ToolMessage"
                   : "AssistantMessage",
               content: normalizedContent,
-              isImage: Boolean(msg?.isImage) || Boolean(dataUriMatch) || Boolean(formattedImageSrc) || Boolean(markdownImageMatch),
+              isImage:
+                Boolean(msg?.isImage) || Boolean(validDataUri) || Boolean(formattedImageSrc) || Boolean(markdownImageMatch),
               isVideo: Boolean(msg?.isVideo) || Boolean(videoSrc),
               videoSrc,
               downloadName: typeof msg?.downloadName === "string" ? msg.downloadName : undefined,
