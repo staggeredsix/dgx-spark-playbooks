@@ -287,8 +287,6 @@ class WarmupManager:
             tools_with_dedicated_tests = {
                 "tavily_search",
                 "generic_web_search",
-                "get_weather",
-                "get_rain_forecast",
                 "explain_image",
                 "explain_video",
                 "write_code",
@@ -298,14 +296,6 @@ class WarmupManager:
                 {"timestamp": 0, "data": provided_media},
                 {"timestamp": 1.5, "data": provided_media},
             ]
-
-            expected_weather_tools = {"get_weather", "get_rain_forecast"}
-            missing_weather_tools = expected_weather_tools - tool_names
-            if missing_weather_tools:
-                self.logs.append(
-                    "Missing expected weather tools at startup: "
-                    + ", ".join(sorted(missing_weather_tools))
-                )
 
             tests: List[Dict[str, Any]] = [
                 {
@@ -360,25 +350,6 @@ class WarmupManager:
                     "required_tools": {"write_code"},
                 },
             ]
-
-            weather_prompt_parts = []
-            if "get_weather" in expected_weather_tools:
-                weather_prompt_parts.append(
-                    "Call get_weather for San Francisco and summarize the forecast you receive."
-                )
-            if "get_rain_forecast" in expected_weather_tools:
-                weather_prompt_parts.append(
-                    "Call get_rain_forecast for Seattle and summarize the rain outlook."
-                )
-
-            tests.insert(
-                3,
-                {
-                    "name": "weather-batch",
-                    "prompt": " ".join(weather_prompt_parts),
-                    "required_tools": expected_weather_tools,
-                },
-            )
 
             if "search_documents" in untested_tools:
                 tests.append(

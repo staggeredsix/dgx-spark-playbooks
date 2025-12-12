@@ -754,9 +754,12 @@ export default function QuerySection({
     },
     img({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) {
       const resolvedSrc = formatImageSrc(src || "");
+      if (!resolvedSrc) {
+        return alt ? <span aria-label={alt}>{alt}</span> : null;
+      }
       return (
         <img
-          src={resolvedSrc || src || ""}
+          src={resolvedSrc}
           alt={alt || "Generated image"}
           loading="lazy"
           onError={(event) => {

@@ -145,10 +145,20 @@ async def generate_video(request: GenerateVideoRequest):
             ),
         )
 
-    def _run_inference() -> dict:
+def _run_inference() -> dict:
         target = WAN_INFERENCE_ENDPOINT or WAN_REPO_ID
-        client = InferenceClient(model=target, token=token)
-        raw_video = client.text_to_video(request.prompt)
+        provider = WAN_PROVIDER or None
+        client = InferenceClient(model=target, token=token, provider=provider)
+        try:
+            raw_video = client.text_to_video(request.prompt)
+        except StopIteration as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "Wan2.2 provider mapping is unavailable. Set WAN_PROVIDER to a supported backend or "
+                    "configure WAN_INFERENCE_ENDPOINT to point at a running inference server."
+                ),
+            ) from exc
         video_bytes = _coalesce_video_bytes(raw_video)
         payload = _serialize_video_bytes(video_bytes)
         payload.update(
