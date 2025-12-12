@@ -112,20 +112,18 @@ services:
       context: ./video-service
       dockerfile: Dockerfile
     environment:
-      - WAN_CKPT_REPO_ID=${WAN_CKPT_REPO_ID:-Wan-AI/Wan2.2-T2V-A14B}
+      - WAN_MODEL_VARIANT=${WAN_MODEL_VARIANT:-t2v-A14B}
       - WAN_CKPT_DIR=${WAN_CKPT_DIR:-/models/wan2.2/ckpt}
       - WAN_CODE_DIR=${WAN_CODE_DIR:-/opt/wan2.2}
       - WAN_OUT_DIR=${WAN_OUT_DIR:-/tmp/wan_out}
-      - WAN_TASK=${WAN_TASK:-t2v-A14B}
-      - WAN_SIZE=${WAN_SIZE:-1280*720}
-      - WAN_PRECACHE=${WAN_PRECACHE:-false}
+      - WAN_PRECACHE=${WAN_PRECACHE:-true}
       - WAN_TIMEOUT_S=${WAN_TIMEOUT_S:-1800}
       - HUGGINGFACEHUB_API_TOKEN=${HUGGINGFACEHUB_API_TOKEN}
       - HF_TOKEN=${HF_TOKEN}
     ports:
       - "8081:8081"
     volumes:
-      - ./models:/models
+      - wan-models:/models
       - wan-cache:/models/hf_cache
     restart: unless-stopped
     gpus: all
@@ -175,6 +173,7 @@ volumes:
   wan-cache:
   neo4j_data:
   neo4j_logs:
+  wan-models:
 
 networks:
   default:

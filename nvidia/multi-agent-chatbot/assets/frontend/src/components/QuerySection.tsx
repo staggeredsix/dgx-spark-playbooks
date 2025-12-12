@@ -120,19 +120,51 @@ function resolveMediaSrc(raw: string | undefined | null): string | null {
   return null;
 }
 
-function formatImageSrc(raw: string | undefined | null): string | null {
-  const resolved = resolveMediaSrc(raw);
-  if (resolved) return resolved;
+function createBlobUrlFromImage(
+  raw: string | undefined | null,
+  cache?: Map<string, string>,
+): string | null {
+  if (!raw) return null;
 
-  const trimmed = (raw || "").trim();
+  const trimmed = raw.trim();
   if (!trimmed) return null;
 
+  const dataUriMatch = trimmed.match(/^data:image\/[^;]+;base64,(.+)$/i);
   const compact = trimmed.replace(/\s+/g, "");
   const looksLikeBase64 = compact.length > 100 && /^[A-Za-z0-9+/]+={0,2}$/.test(compact);
-  if (looksLikeBase64) {
-    const dataUri = `data:image/png;base64,${compact}`;
-    return isValidDataUri(dataUri) ? dataUri : null;
+  const base64Payload = dataUriMatch?.[1] || (looksLikeBase64 ? compact : "");
+
+  if (!base64Payload) return null;
+
+  if (cache?.has(base64Payload)) return cache.get(base64Payload) ?? null;
+
+  const decoded = decodeBase64Payload(base64Payload);
+  if (!decoded) return null;
+
+  try {
+    const blob = new Blob([decoded], { type: "image/png" });
+    const url = URL.createObjectURL(blob);
+    cache?.set(base64Payload, url);
+    return url;
+  } catch {
+    return null;
   }
+}
+
+function formatImageSrc(
+  raw: string | undefined | null,
+  registerObjectUrl?: (url: string) => void,
+  cache?: Map<string, string>,
+): string | null {
+  const resolved = resolveMediaSrc(raw);
+  const blobUrl = createBlobUrlFromImage(resolved ?? raw, cache);
+
+  if (blobUrl) {
+    registerObjectUrl?.(blobUrl);
+    return blobUrl;
+  }
+
+  if (resolved && !resolved.startsWith("data:")) return resolved;
 
   return null;
 }
@@ -309,6 +341,8 @@ interface Message {
   isVideo?: boolean;
   videoSrc?: string;
   downloadName?: string;
+  imageSrc?: string;
+  imageObjectUrl?: string;
 }
 
 
@@ -344,6 +378,18 @@ export default function QuerySection({
   const firstTokenReceived = useRef(false);
   const hasAssistantContent = useRef(false);
   const fadeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const objectUrlsRef = useRef<Set<string>>(new Set());
+  const imageBlobCache = useRef<Map<string, string>>(new Map());
+
+  const registerObjectUrl = useCallback((url: string) => {
+    objectUrlsRef.current.add(url);
+  }, []);
+
+  useEffect(() => () => {
+    objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    objectUrlsRef.current.clear();
+    imageBlobCache.current.clear();
+  }, []);
 
   const normalizeMessages = useCallback((raw: string): Message[] => {
     try {
@@ -353,12 +399,19 @@ export default function QuerySection({
             const content = typeof msg?.content === "string" ? msg.content : String(msg?.content ?? "");
             const markdownImageMatch = content.match(/!\[[^\]]*]\(([^)]+)\)/);
             const embeddedImageSrc = markdownImageMatch?.[1];
-            const formattedImageSrc = formatImageSrc(embeddedImageSrc || content);
+            const formattedImageSrc = formatImageSrc(
+              embeddedImageSrc || content,
+              registerObjectUrl,
+              imageBlobCache.current,
+            );
             const dataUriMatch = content.match(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/);
             const validDataUri = dataUriMatch && isValidDataUri(dataUriMatch[0]) ? dataUriMatch[0] : null;
+            const imageSrc =
+              formattedImageSrc ||
+              (validDataUri ? formatImageSrc(validDataUri, registerObjectUrl, imageBlobCache.current) : null);
             const normalizedContent =
-              (validDataUri || formattedImageSrc) && !content.includes("![") && !markdownImageMatch
-                ? `![Generated image](${validDataUri ? validDataUri : formattedImageSrc})`
+              imageSrc && !content.includes("![") && !markdownImageMatch
+                ? `![Generated image](${imageSrc})`
                 : content;
             const rawVideoSrc =
               typeof msg?.videoUrl === "string"
@@ -376,18 +429,19 @@ export default function QuerySection({
                   ? "ToolMessage"
                   : "AssistantMessage",
               content: normalizedContent,
-              isImage:
-                Boolean(msg?.isImage) || Boolean(validDataUri) || Boolean(formattedImageSrc) || Boolean(markdownImageMatch),
+              isImage: Boolean(msg?.isImage) || Boolean(imageSrc) || Boolean(markdownImageMatch),
               isVideo: Boolean(msg?.isVideo) || Boolean(videoSrc),
               videoSrc,
               downloadName: typeof msg?.downloadName === "string" ? msg.downloadName : undefined,
+              imageSrc: imageSrc || undefined,
+              imageObjectUrl: imageSrc?.startsWith("blob:") ? imageSrc : undefined,
             };
           })
         : [];
     } catch {
       return [];
     }
-  }, []);
+  }, [registerObjectUrl]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -479,19 +533,25 @@ export default function QuerySection({
               const contentImage = typeof msg.content === "string" ? msg.content : "";
               const textImage = typeof text === "string" ? text : "";
               const imageSrc =
-                formatImageSrc(providedUrl) ??
-                formatImageSrc(rawImage) ??
-                formatImageSrc(contentImage) ??
-                formatImageSrc(textImage);
+                formatImageSrc(providedUrl, registerObjectUrl, imageBlobCache.current) ??
+                formatImageSrc(rawImage, registerObjectUrl, imageBlobCache.current) ??
+                formatImageSrc(contentImage, registerObjectUrl, imageBlobCache.current) ??
+                formatImageSrc(textImage, registerObjectUrl, imageBlobCache.current);
               const imageMarkdown = imageSrc
                 ? `![Generated image](${imageSrc})`
-                : contentImage || textImage;
+                : contentImage || textImage || "[image available]";
               if (!imageMarkdown) break;
 
               hasAssistantContent.current = true;
               setResponse(prev => {
                 const messages = normalizeMessages(prev);
-                messages.push({ type: "AssistantMessage", content: imageMarkdown, isImage: Boolean(imageSrc) });
+                messages.push({
+                  type: "AssistantMessage",
+                  content: imageMarkdown,
+                  isImage: Boolean(imageSrc),
+                  imageSrc,
+                  imageObjectUrl: imageSrc?.startsWith("blob:") ? imageSrc : undefined,
+                });
                 return JSON.stringify(messages);
               });
               break;
@@ -835,7 +895,7 @@ export default function QuerySection({
       );
     },
     img({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) {
-      const resolvedSrc = formatImageSrc(src || "");
+      const resolvedSrc = formatImageSrc(src || "", registerObjectUrl, imageBlobCache.current);
       if (!resolvedSrc) {
         return alt ? <span aria-label={alt}>{alt}</span> : null;
       }
@@ -876,12 +936,13 @@ export default function QuerySection({
           const cleanedContent = message.isVideo ? stripVideoMarkup(message.content) : message.content;
           const shouldRenderMarkdown = Boolean(cleanedContent?.trim());
           const imageSrc = message.isImage
-            ? (() => {
+            ? message.imageSrc ||
+              (() => {
                 const markdownMatch = cleanedContent?.match(/!\[[^\]]*]\(([^)]+)\)/);
                 return (
-                  formatImageSrc(markdownMatch?.[1]) ||
-                  formatImageSrc(message.content) ||
-                  formatImageSrc(cleanedContent)
+                  formatImageSrc(markdownMatch?.[1], registerObjectUrl, imageBlobCache.current) ||
+                  formatImageSrc(message.content, registerObjectUrl, imageBlobCache.current) ||
+                  formatImageSrc(cleanedContent, registerObjectUrl, imageBlobCache.current)
                 );
               })()
             : null;
