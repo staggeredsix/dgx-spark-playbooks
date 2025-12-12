@@ -24,7 +24,6 @@ import re
 from typing import AsyncIterator, List, Dict, Any, TypedDict, Optional, Callable, Awaitable
 
 from langchain_core.messages import HumanMessage, AIMessage, AnyMessage, SystemMessage, ToolMessage, ToolCall
-from langchain_core.tools import tool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
@@ -162,26 +161,7 @@ class ChatAgent:
 
     def _build_fallback_tools(self):
         """Provide in-process stand-ins for required tools when MCP servers are unavailable."""
-
-        @tool
-        async def get_weather(location: str) -> str:
-            """Call to get the weather from a specific location."""
-
-            normalized = location.strip() or "your area"
-            if any(city in normalized.lower() for city in ["sf", "san francisco"]):
-                return "It's sunny in San Francisco, but you better look out if you're a Gemini 😈."
-            return f"The weather is spooky with a chance of gremlins in {normalized}"
-
-        @tool
-        async def get_rain_forecast(location: str) -> str:
-            """Call to get the rain forecast from a specific location."""
-
-            normalized = location.strip() or "your area"
-            if any(city in normalized.lower() for city in ["sf", "san francisco"]):
-                return "It's going to rain cats and dogs in San Francisco tomorrow."
-            return f"It is raining muffins in {normalized}"
-
-        return [get_weather, get_rain_forecast]
+        return []
 
     def _convert_tool_to_openai(self, tool_obj):
         """Normalize MCP and fallback tools into the OpenAI tool schema."""
