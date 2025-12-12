@@ -26,13 +26,23 @@ import WelcomeSection from "./WelcomeSection";
 
 const VIDEO_SOURCE_REGEX = /src=["'](data:video[^"']+|https?:\/\/[^"']+|\/[^"']+)["']/i;
 
+function isValidDataUri(raw: string): boolean {
+  const match = raw.match(/^data:(image|video)\/[^;,]+;base64,(.+)$/i);
+  if (!match) return false;
+
+  const [, , payload] = match;
+  return payload.length > 16 && /^[A-Za-z0-9+/]+={0,2}$/.test(payload);
+}
+
 function resolveMediaSrc(raw: string | undefined | null): string | null {
   if (!raw) return null;
 
   const trimmed = raw.trim();
   if (!trimmed) return null;
 
-  if (/^(data:(?:image|video)\/|https?:\/\/|blob:)/i.test(trimmed)) return trimmed;
+  if (/^data:(?:image|video)\//i.test(trimmed)) return isValidDataUri(trimmed) ? trimmed : null;
+
+  if (/^(https?:\/\/|blob:)/i.test(trimmed)) return trimmed;
 
   if (trimmed.startsWith("/api/")) return trimmed;
 
