@@ -10,20 +10,12 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        git \
-        git-lfs \
         ffmpeg \
     && rm -rf /var/lib/apt/lists/*
-
-RUN git lfs install
 
 WORKDIR /app
 
 COPY main.py /app/main.py
-
-# Clone Wan2.2 reference code
-RUN mkdir -p ${WAN_CODE_DIR} && \
-    git clone --depth 1 https://huggingface.co/Wan-AI/Wan2.2 ${WAN_CODE_DIR}
 
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir \

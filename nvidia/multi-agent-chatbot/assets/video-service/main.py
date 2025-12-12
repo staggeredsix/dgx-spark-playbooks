@@ -20,6 +20,7 @@ logging.basicConfig(level=logging.INFO)
 
 WAN_CKPT_REPO_ID = os.getenv("WAN_CKPT_REPO_ID", "Wan-AI/Wan2.2-T2V-A14B")
 WAN_CKPT_DIR = os.getenv("WAN_CKPT_DIR", "/models/wan2.2/ckpt")
+WAN_CODE_REPO_ID = os.getenv("WAN_CODE_REPO_ID", "Wan-AI/Wan2.2")
 WAN_CODE_DIR = os.getenv("WAN_CODE_DIR", "/opt/wan2.2")
 WAN_OUT_DIR = os.getenv("WAN_OUT_DIR", "/tmp/wan_out")
 WAN_TASK = os.getenv("WAN_TASK", "t2v-A14B")
@@ -67,6 +68,10 @@ def _has_local_checkpoints() -> bool:
     return False
 
 
+def _has_local_code() -> bool:
+    return (Path(WAN_CODE_DIR) / "generate.py").exists()
+
+
 def _maybe_precache_model(token: Optional[str]) -> Optional[str]:
     _ensure_dirs()
 
@@ -97,6 +102,37 @@ def _maybe_precache_model(token: Optional[str]) -> Optional[str]:
         return WAN_CKPT_DIR
     except Exception as exc:  # pragma: no cover - warmup diagnostics
         logger.warning("Failed to pre-cache Wan2.2 checkpoints: %s", exc)
+        return None
+
+
+def _maybe_precache_code(token: Optional[str]) -> Optional[str]:
+    if _has_local_code():
+        logger.info("Wan2.2 code already present at %s", WAN_CODE_DIR)
+        return WAN_CODE_DIR
+
+    if not WAN_PRECACHE:
+        logger.info("WAN_PRECACHE disabled; Wan2.2 code will be downloaded on demand if needed.")
+        return None
+
+    if not token:
+        logger.warning(
+            "WAN_PRECACHE is enabled but no Hugging Face token is configured; skipping Wan2.2 code download."
+        )
+        return None
+
+    try:
+        snapshot_download(
+            repo_id=WAN_CODE_REPO_ID,
+            repo_type="model",
+            token=token,
+            local_dir=WAN_CODE_DIR,
+            local_dir_use_symlinks=False,
+            allow_patterns=None,
+        )
+        logger.info("Cached Wan2.2 code at %s", WAN_CODE_DIR)
+        return WAN_CODE_DIR
+    except Exception as exc:  # pragma: no cover - warmup diagnostics
+        logger.warning("Failed to pre-cache Wan2.2 code: %s", exc)
         return None
 
 
@@ -161,6 +197,36 @@ def _ensure_checkpoints_available(token: Optional[str]) -> None:
         raise HTTPException(status_code=502, detail=f"Failed to download Wan2.2 checkpoints: {exc}")
 
 
+def _ensure_code_available(token: Optional[str]) -> None:
+    code_dir = Path(WAN_CODE_DIR)
+    code_dir.mkdir(parents=True, exist_ok=True)
+
+    if _has_local_code():
+        return
+
+    if not token:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Wan2.2 reference code is missing locally and no Hugging Face token was provided. "
+                "Set HF_TOKEN or HUGGINGFACEHUB_API_TOKEN to download the Wan2.2 code."
+            ),
+        )
+
+    try:
+        snapshot_download(
+            repo_id=WAN_CODE_REPO_ID,
+            repo_type="model",
+            token=token,
+            local_dir=WAN_CODE_DIR,
+            local_dir_use_symlinks=False,
+            allow_patterns=None,
+        )
+    except Exception as exc:
+        logger.exception("Failed to download Wan2.2 reference code")
+        raise HTTPException(status_code=502, detail=f"Failed to download Wan2.2 reference code: {exc}")
+
+
 def _run_inference(prompt: str) -> dict:
     request_dir = Path(WAN_OUT_DIR) / str(uuid4())
     request_dir.mkdir(parents=True, exist_ok=True)
@@ -221,6 +287,7 @@ def _run_inference(prompt: str) -> dict:
 @app.on_event("startup")
 async def _warm_cache() -> None:
     token = _resolve_hf_token(None)
+    _maybe_precache_code(token)
     cache_path = _maybe_precache_model(token)
     if cache_path:
         logger.info("Wan2.2 checkpoints available at %s", cache_path)
@@ -251,7 +318,9 @@ async def generate_video(request: GenerateVideoRequest):
     token = _resolve_hf_token(request.hf_api_key)
 
     _ensure_dirs()
+    _maybe_precache_code(token if WAN_PRECACHE else None)
     _maybe_precache_model(token if WAN_PRECACHE else None)
+    _ensure_code_available(token)
     _ensure_checkpoints_available(token)
 
     try:
