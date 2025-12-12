@@ -73,6 +73,15 @@ chmod +x model_download.sh
 
 > **FLUX image generation model**: If you opt in to the FLUX image pipeline, run `scripts/download_flux.sh` from this directory. By default it writes the weights to `assets/flux-schnell` (or a custom path you pass as the first argument) and will skip downloading if the model is already present.
 
+#### 3b. Provide a Hugging Face token (FLUX and Wan2.2 downloads)
+`docker compose` forwards `HF_TOKEN` or `HUGGINGFACEHUB_API_TOKEN` into the FLUX and video services for gated model downloads. If you previously exported `HG_TOKEN`, rename it to `HF_TOKEN` to avoid empty token warnings from Compose.
+
+```bash
+cp .env.example .env
+echo "HF_TOKEN=<your_huggingface_token>" >> .env
+# Alternatively: echo "HUGGINGFACEHUB_API_TOKEN=<your_huggingface_token>" >> .env
+```
+
 #### 4. Start the docker containers for the application
 This step starts the Ollama runtime, Neo4j, the backend API server, and the frontend UI. This step can take 10 to 20 minutes depending on network speed.
 ```bash
