@@ -11,23 +11,25 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ffmpeg \
+        git \
+        build-essential \
     && rm -rf /var/lib/apt/lists/*
+
+RUN git clone https://github.com/Wan-Video/Wan2.2.git ${WAN_CODE_DIR}
 
 WORKDIR /app
 
 COPY main.py /app/main.py
 
 RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r ${WAN_CODE_DIR}/requirements.txt && \
     pip install --no-cache-dir \
         fastapi \
         uvicorn[standard] \
         huggingface-hub \
         pydantic \
         pillow \
-        imageio[ffmpeg] \
-        transformers \
-        accelerate \
-        einops
+        imageio[ffmpeg]
 
 RUN mkdir -p ${WAN_CKPT_DIR} ${WAN_OUT_DIR}
 
