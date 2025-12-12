@@ -508,7 +508,6 @@ async def download_flux_model(request: FluxDownloadRequest):
             repo_type="model",
             token=hf_token,
             local_dir=str(cache_path),
-            local_dir_use_symlinks=False,
         )
         return {"status": "success", "model": model_id, "path": path}
     except Exception as e:

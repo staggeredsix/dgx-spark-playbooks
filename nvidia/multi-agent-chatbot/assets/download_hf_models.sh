@@ -67,7 +67,6 @@ path = snapshot_download(
     repo_type="model",
     token=token,
     local_dir=local_dir,
-    local_dir_use_symlinks=False,
 )
 print(f"FLUX model ready at: {path}")
 PY
@@ -98,7 +97,6 @@ path = snapshot_download(
     repo_type="model",
     token=token,
     local_dir=local_dir,
-    local_dir_use_symlinks=False,
 )
 print(f"Wan2.2 T2V model ready at: {path}")
 PY
@@ -131,7 +129,6 @@ path = snapshot_download(
     repo_type="model",
     token=token,
     local_dir=local_dir,
-    local_dir_use_symlinks=False,
     allow_patterns=[file_pattern],
 )
 print(f"Wan2.2 T2V GGUF model ready at: {path}")
