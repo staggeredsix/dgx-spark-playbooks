@@ -13,17 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-"""MCP server that routes image generation through a local script instead of FLUX inference."""
+"""MCP server that calls the FLUX inference service for image generation."""
 
 from __future__ import annotations
 
-import json
-import subprocess
+import os
 import sys
 import uuid
 from pathlib import Path
 from typing import Optional
 
+import requests
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
@@ -33,8 +33,8 @@ from config import ConfigManager  # noqa: E402
 
 mcp = FastMCP("FLUX Image Generation")
 CONFIG_PATH = Path(__file__).resolve().parents[2] / "config.json"
-SCRIPT_PATH = Path(__file__).resolve().parent.parent / "media_generation.py"
 config_manager = ConfigManager(str(CONFIG_PATH))
+FLUX_SERVICE_URL = os.getenv("FLUX_SERVICE_URL", "http://localhost:8080")
 
 
 class FluxImageRequest(BaseModel):
@@ -66,53 +66,56 @@ async def generate_image(
     steps: Optional[int] = None,
     guidance_scale: Optional[float] = None,
 ):
-    """Generate an image file via the local media generation script."""
+    """Generate an image via the FLUX inference service."""
 
     if not config_manager.is_flux_enabled():
         raise ValueError("FLUX image generation is disabled. Enable it in advanced settings before using this tool.")
 
-    # Include optional parameters in the prompt overlay for traceability without
-    # invoking the FLUX inference service.
-    prompt_parts = [prompt.strip()]
-    if negative_prompt:
-        prompt_parts.append(f"Avoid: {negative_prompt.strip()}")
-    if model:
-        prompt_parts.append(f"Model hint: {model.strip()}")
-    if seed is not None:
-        prompt_parts.append(f"Seed: {seed}")
-    if width and height:
-        prompt_parts.append(f"Resolution: {width}x{height}")
-    if steps:
-        prompt_parts.append(f"Steps: {steps}")
-    if guidance_scale is not None:
-        prompt_parts.append(f"Guidance: {guidance_scale}")
+    payload = {
+        "prompt": prompt.strip(),
+        "negative_prompt": negative_prompt.strip() if negative_prompt else None,
+        "seed": seed,
+        "model": model or config_manager.get_flux_model(),
+        "hf_api_key": hf_api_key or config_manager.get_hf_api_key(),
+        "width": width,
+        "height": height,
+        "steps": steps,
+        "guidance_scale": guidance_scale,
+    }
+
+    # Remove unset values so the service can apply its own defaults
+    sanitized_payload = {k: v for k, v in payload.items() if v is not None}
 
     request_id = uuid.uuid4().hex
-    command = [
-        sys.executable,
-        str(SCRIPT_PATH),
-        "image",
-        "--prompt",
-        " | ".join(prompt_parts),
-        "--request-id",
-        request_id,
-    ]
+    endpoint = f"{FLUX_SERVICE_URL.rstrip('/')}/generate_image"
 
     try:
-        result = subprocess.run(command, capture_output=True, text=True, check=True)
-    except subprocess.CalledProcessError as exc:
-        raise RuntimeError(f"Image generation script failed: {exc.stderr or exc.stdout}") from exc
+        response = requests.post(endpoint, json=sanitized_payload, timeout=300)
+    except requests.RequestException as exc:  # pragma: no cover - network failure
+        raise RuntimeError(
+            "Failed to reach the FLUX service. Ensure flux-service is running and accessible."
+        ) from exc
+
+    if response.status_code != 200:
+        raise RuntimeError(
+            f"FLUX service returned {response.status_code}: {response.text or response.reason}"
+        )
 
     try:
-        payload = json.loads(result.stdout.strip())
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("Image generation script returned invalid payload.") from exc
+        payload = response.json()
+    except ValueError as exc:
+        raise RuntimeError("FLUX service returned invalid JSON response.") from exc
+
+    image_markdown = payload.get("image_markdown")
+    if not image_markdown:
+        raise RuntimeError("FLUX service did not return an image payload.")
 
     return {
-        "request_id": payload.get("request_id", request_id),
-        "image_path": payload.get("file_path"),
-        "image_url": payload.get("file_url"),
-        "image_markdown": payload.get("markdown"),
+        "request_id": request_id,
+        "image_markdown": image_markdown,
+        "image_base64": payload.get("image_base64") or payload.get("image"),
+        "model": payload.get("model"),
+        "provider": payload.get("provider"),
     }
 
 

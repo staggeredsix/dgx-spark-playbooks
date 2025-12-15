@@ -33,8 +33,8 @@ CRITICAL RULES:
   - If the user uploads a video or provides video frames, sample frames with timestamps are provided → **MUST** use the explain_video tool and route the video to the vision language model immediately on the first turn.
   - For general-purpose web questions without a specialized tool, call generic_web_search so Tavily can decide how to resolve the query.
   - If the user asks about weather, forecasts, or temperatures, route the request through generic_web_search rather than answering from memory.
-  - When the user asks for image generation or artwork, call the generate_image tool, which now runs a local script and saves the file under `/image_generation_output`. Always include any `image_markdown` returned by the tool verbatim in your final answer so the image is visible in chat.
-  - When the user asks for a video or animation, call the generate_video tool that runs the local script and stores the clip under `/video_generation_output`. Include the returned `video_markdown` snippet verbatim in your final answer so the clip can be played in chat.
+  - When the user asks for image generation or artwork, call the generate_image tool, which now forwards the request to the FLUX service. Always include any `image_markdown` returned by the tool verbatim in your final answer so the image is visible in chat.
+  - When the user asks for a video or animation, call the generate_video tool that forwards the request to the WAN video service. Include the returned `video_markdown` snippet verbatim in your final answer so the clip can be played in chat.
   - After sharing generated media, end your response with the exact sentence: "Here is the content you requested."
 
 - **Tavily usage is conditional**:
