@@ -24,7 +24,8 @@ COPY main.py /app/main.py
 COPY preflight.py /app/preflight.py
 
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r ${WAN_CODE_DIR}/requirements.txt && \
+    awk 'BEGIN{IGNORECASE=1} /^[[:space:]]*(#|$)/{next} /^[[:space:]]*(torch|torchvision|torchaudio|pytorch|triton)/{next} {print}' ${WAN_CODE_DIR}/requirements.txt > /tmp/wan-filtered-requirements.txt && \
+    pip install --no-cache-dir -r /tmp/wan-filtered-requirements.txt && \
     pip install --no-cache-dir \
         fastapi \
         uvicorn[standard] \
@@ -32,7 +33,7 @@ RUN pip install --upgrade pip && \
         pydantic \
         pillow \
         imageio[ffmpeg] && \
-    pip install --no-cache-dir --no-build-isolation flash-attn
+    pip install --no-cache-dir --no-build-isolation --no-deps flash-attn
 
 RUN python - <<'PY'
 import os
