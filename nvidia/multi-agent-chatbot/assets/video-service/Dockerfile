@@ -21,10 +21,9 @@ RUN git clone https://github.com/Wan-Video/Wan2.2.git ${WAN_CODE_DIR}
 WORKDIR /app
 
 COPY main.py /app/main.py
+COPY preflight.py /app/preflight.py
 
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu124 \
-        torch torchvision torchaudio && \
     pip install --no-cache-dir -r ${WAN_CODE_DIR}/requirements.txt && \
     pip install --no-cache-dir \
         fastapi \
@@ -45,7 +44,6 @@ with open("/etc/ld.so.conf.d/torch.conf", "w", encoding="utf-8") as f:
     f.write(lib + "\n")
 PY
 RUN ldconfig
-RUN python -c "import torch; assert torch.cuda.is_available(); print(torch.__version__, torch.version.cuda)"
 
 RUN mkdir -p ${WAN_CKPT_DIR} ${WAN_OUT_DIR}
 
@@ -53,4 +51,4 @@ ENV HF_HOME=/models/hf_cache
 
 EXPOSE 8081
 
-ENTRYPOINT ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8081"]
+CMD ["bash", "-lc", "python /app/preflight.py && uvicorn main:app --host 0.0.0.0 --port 8081"]

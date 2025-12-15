@@ -15,7 +15,6 @@ WORKDIR /app
 
 COPY requirements.txt /app/requirements.txt
 RUN pip install --upgrade pip && \
-    pip3 install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu130 && \
     pip install --no-cache-dir -r /app/requirements.txt
 
 RUN python - <<'PY'
@@ -28,7 +27,6 @@ with open("/etc/ld.so.conf.d/torch.conf", "w", encoding="utf-8") as f:
     f.write(lib + "\n")
 PY
 RUN ldconfig
-RUN python -c "import torch; assert torch.cuda.is_available(); print(torch.__version__, torch.version.cuda)"
 
 COPY . /app
 
@@ -37,4 +35,4 @@ ENV FLUX_MODEL_ID=black-forest-labs/FLUX.1-schnell
 
 EXPOSE 8080
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["bash", "-lc", "python /app/preflight.py && uvicorn main:app --host 0.0.0.0 --port 8080"]
