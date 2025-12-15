@@ -11,7 +11,16 @@ from mcp.server.fastmcp import FastMCP
 
 from .config import HubConfig
 from .tool_errors import ToolError
-from .spokes import flux_spoke, ministral_spoke, rag_spoke, tavily_spoke, wan_spoke
+from .spokes import (
+    code_spoke,
+    flux_spoke,
+    image_understanding_spoke,
+    ministral_spoke,
+    rag_spoke,
+    self_tooling_spoke,
+    tavily_spoke,
+    wan_spoke,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +71,9 @@ def build_hub(config: HubConfig | None = None) -> ToolHub:
     _register_spoke(hub, flux_spoke.register_tools, "flux")
     _register_spoke(hub, wan_spoke.register_tools, "wan")
     _register_spoke(hub, ministral_spoke.register_tools, "ministral")
+    _register_spoke(hub, code_spoke.register_tools, "code_generation")
+    _register_spoke(hub, image_understanding_spoke.register_tools, "image_understanding")
+    _register_spoke(hub, self_tooling_spoke.register_tools, "self_tooling")
 
     return hub
 
