@@ -17,7 +17,7 @@
 import type React from "react";
 import { useRef, useEffect, useState, useCallback } from "react";
 import { backendFetch, buildBackendUrl, buildWebSocketUrl } from "@/utils/backend";
-import { dataUriToBlobUrl, isDataUri, revokeUrl } from "@/utils/media";
+import { dataUriToBlobUrl, isDataUri, revokeUrl } from "@/lib/media";
 import styles from "@/styles/QuerySection.module.css";
 import ReactMarkdown from 'react-markdown'; // NEW
 import remarkGfm from 'remark-gfm'; // NEW
@@ -1120,7 +1120,13 @@ export default function QuerySection({
                 )}
                 {videoSrc && (
                   <div className={styles.videoWrapper}>
-                    <video controls src={videoSrc} className={styles.videoPlayer}>
+                    <video
+                      controls
+                      playsInline
+                      muted
+                      src={videoSrc}
+                      className={styles.videoPlayer}
+                    >
                       Your browser does not support the video tag.
                     </video>
                     <a
