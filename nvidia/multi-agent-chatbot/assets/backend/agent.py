@@ -541,6 +541,18 @@ class ChatAgent:
                     "forced_tool": forced_tool,
                 }
             )
+
+        if not tool_calls:
+            inferred_media_tool = self._detect_requested_media_tool(state.get("messages", []))
+            if inferred_media_tool:
+                tool_calls = [inferred_media_tool]
+                logger.info(
+                    {
+                        "message": "No tool calls returned; forcing media generation tool execution",
+                        "chat_id": state.get("chat_id"),
+                        "forced_tool": inferred_media_tool.name,
+                    }
+                )
         raw_output = "".join(llm_output_buffer)
 
         logger.info({
@@ -601,6 +613,49 @@ class ChatAgent:
 
         return workflow.compile(checkpointer=memory)
 
+    def _detect_requested_media_tool(self, messages: List[AnyMessage]) -> ToolCall | None:
+        """Infer whether the user asked for media generation and force a tool call.
+
+        This acts as a safeguard when the supervisor model fails to emit the
+        required generate_image or generate_video tool calls.
+        """
+
+        if not messages:
+            return None
+
+        try:
+            last_user = next(msg for msg in reversed(messages) if isinstance(msg, HumanMessage))
+        except StopIteration:
+            return None
+
+        text = str(last_user.content).lower()
+        wants_video = any(keyword in text for keyword in ["video", "animation", "gif", "clip", "movie"])
+        wants_image = any(keyword in text for keyword in ["image", "picture", "photo", "art", "drawing", "illustration"])
+
+        tool_name = None
+        if wants_video:
+            tool_name = "generate_video"
+        elif wants_image:
+            tool_name = "generate_image"
+
+        if not tool_name:
+            return None
+
+        if not self.tools_by_name or tool_name not in self.tools_by_name:
+            logger.warning(
+                {
+                    "message": "Media request detected but generation tool is unavailable",
+                    "tool_name": tool_name,
+                }
+            )
+            return None
+
+        return ToolCall(
+            name=tool_name,
+            args={"prompt": str(last_user.content)},
+            id="auto_media_generation",
+        )
+
     def _format_tool_calls(self, tool_calls_buffer: Dict[int, Dict[str, str]]) -> List[ToolCall]:
         """Parse streamed tool call buffer into ToolCall objects.
         
@@ -632,11 +687,11 @@ class ChatAgent:
 
     async def _stream_response(self, stream, stream_callback: StreamCallback) -> tuple[List[str], Dict[int, Dict[str, str]]]:
         """Process streaming LLM response and extract content and tool calls.
-        
+
         Args:
             stream: Async stream from LLM
             stream_callback: Callback for streaming events
-            
+
         Returns:
             Tuple of (content_buffer, tool_calls_buffer)
         """
@@ -652,7 +707,10 @@ class ChatAgent:
 
                 content = getattr(delta, "content", None)
                 if content:
-                    await stream_callback({"type": "token", "data": content})
+                    # Buffer tokens until we know whether the model is trying to
+                    # call tools. Streaming premature text for tool-driven turns
+                    # causes the UI to show incomplete placeholders before media
+                    # generation finishes.
                     llm_output_buffer.append(content)
                 for tc in getattr(delta, "tool_calls", []) or []:
                     idx = getattr(tc, "index", None)
@@ -674,9 +732,15 @@ class ChatAgent:
                 if finish_reason == "tool_calls":
                     saw_tool_finish = True
                     break
-                    
+
             if saw_tool_finish:
                 break
+
+        # Only stream buffered tokens if no tool calls were produced; otherwise,
+        # the final assistant message will be generated after tools complete.
+        if not tool_calls_buffer:
+            for token in llm_output_buffer:
+                await stream_callback({"type": "token", "data": token})
 
         return llm_output_buffer, tool_calls_buffer
 
