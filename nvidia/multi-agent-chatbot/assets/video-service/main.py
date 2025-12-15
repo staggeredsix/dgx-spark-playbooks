@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+import importlib
 import logging
 import os
 import subprocess
@@ -54,6 +55,43 @@ MAX_PROMPT_LENGTH = 2000
 DEFAULT_HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
 
 app = FastAPI(title="Wan2.2 Video Service", version="1.0")
+
+
+def _validate_environment() -> None:
+    try:
+        torch = importlib.import_module("torch")
+    except Exception as exc:  # pragma: no cover - startup diagnostics
+        logger.exception("PyTorch import failed during startup", exc_info=exc)
+        raise SystemExit(1) from exc
+
+    try:
+        cuda_available = torch.cuda.is_available()
+        cuda_version = torch.version.cuda
+        device_name = torch.cuda.get_device_name(0) if cuda_available else "unavailable"
+        logger.info(
+            "Torch diagnostics: version=%s cuda_version=%s cuda_available=%s device=%s",
+            torch.__version__,
+            cuda_version,
+            cuda_available,
+            device_name,
+        )
+    except Exception as exc:  # pragma: no cover - startup diagnostics
+        logger.exception("PyTorch CUDA diagnostics failed", exc_info=exc)
+        raise SystemExit(1) from exc
+
+    if not cuda_available or not cuda_version:
+        logger.error("CUDA is not available or torch is built without CUDA support; exiting.")
+        raise SystemExit(1)
+
+    try:
+        importlib.import_module("flash_attn")
+        logger.info("flash_attn import successful")
+    except Exception as exc:  # pragma: no cover - startup diagnostics
+        logger.exception("flash_attn import failed during startup", exc_info=exc)
+        raise SystemExit(1) from exc
+
+
+_validate_environment()
 
 
 class GenerateVideoRequest(BaseModel):
