@@ -545,12 +545,17 @@ class ChatAgent:
         if not tool_calls:
             inferred_media_tool = self._detect_requested_media_tool(state.get("messages", []))
             if inferred_media_tool:
+                forced_tool_name = (
+                    inferred_media_tool.get("name")
+                    if isinstance(inferred_media_tool, dict)
+                    else getattr(inferred_media_tool, "name", "unknown")
+                ) or "unknown"
                 tool_calls = [inferred_media_tool]
                 logger.info(
                     {
                         "message": "No tool calls returned; forcing media generation tool execution",
                         "chat_id": state.get("chat_id"),
-                        "forced_tool": inferred_media_tool.name,
+                        "forced_tool": forced_tool_name,
                     }
                 )
         raw_output = "".join(llm_output_buffer)
