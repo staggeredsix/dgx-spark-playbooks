@@ -37,41 +37,11 @@ class MCPClient:
     def __init__(self):
         """Initialize the MCP client with predefined server configurations."""
         self.server_configs = {
-            "image-understanding-server": {
+            "mcp-hub": {
                 "command": "python",
-                "args": ["tools/mcp_servers/image_understanding.py"],
+                "args": ["tools/mcp_hub.py"],
                 "transport": "stdio",
-            },
-            "code-generation-server": {
-                "command": "python",
-                "args": ["tools/mcp_servers/code_generation.py"],
-                "transport": "stdio",
-            },
-            "rag-server": {
-                "command": "python",
-                "args": ["tools/mcp_servers/rag.py"],
-                "transport": "stdio",
-            },
-            "tavily-server": {
-                "command": "python",
-                "args": ["tools/mcp_servers/tavily_search.py"],
-                "transport": "stdio",
-            },
-            "flux-image-server": {
-                "command": "python",
-                "args": ["tools/mcp_servers/flux_image_generation.py"],
-                "transport": "stdio",
-            },
-            "wan-video-server": {
-                "command": "python",
-                "args": ["tools/mcp_servers/wan_video_generation.py"],
-                "transport": "stdio",
-            },
-            "self-tooling-server": {
-                "command": "python",
-                "args": ["tools/mcp_servers/self_tooling.py"],
-                "transport": "stdio",
-            },
+            }
         }
         self.mcp_client: MultiServerMCPClient | None = None
 
