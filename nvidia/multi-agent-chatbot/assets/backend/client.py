@@ -66,7 +66,12 @@ class MCPClient:
                 "command": "python",
                 "args": ["tools/mcp_servers/wan_video_generation.py"],
                 "transport": "stdio",
-            }
+            },
+            "self-tooling-server": {
+                "command": "python",
+                "args": ["tools/mcp_servers/self_tooling.py"],
+                "transport": "stdio",
+            },
         }
         self.mcp_client: MultiServerMCPClient | None = None
 
