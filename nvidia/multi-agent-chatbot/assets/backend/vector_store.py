@@ -79,15 +79,17 @@ class VectorStore:
             self.embedding_node_property = embedding_node_property
             self.embedding_model = self._get_embedding_model()
             self.embedding_base_url = self._get_embedding_base_url()
+            # Allow more generous defaults to accommodate slow model loads while
+            # still permitting overrides via constructor args or environment.
             self.embedding_init_retries = (
                 embedding_init_retries
                 if embedding_init_retries is not None
-                else int(os.getenv("EMBEDDING_INIT_RETRIES", "15"))
+                else int(os.getenv("EMBEDDING_INIT_RETRIES", "40"))
             )
             self.embedding_init_backoff = (
                 embedding_init_backoff
                 if embedding_init_backoff is not None
-                else float(os.getenv("EMBEDDING_INIT_BACKOFF", "2.5"))
+                else float(os.getenv("EMBEDDING_INIT_BACKOFF", "3"))
             )
             self.embeddings = embeddings or OllamaEmbeddings(
                 model=self.embedding_model,
