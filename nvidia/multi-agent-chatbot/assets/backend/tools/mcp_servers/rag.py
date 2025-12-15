@@ -92,13 +92,11 @@ class RAGAgent:
             logger.info(
                 {
                     "message": "Initializing vector store for RAG MCP server",
-                    "hint": "Will attempt a limited embedding warmup to avoid startup stalls",
+                    "hint": "Will wait for embedding service to become available during startup",
                 }
             )
             self.vector_store = create_vector_store_with_config(
                 self.config_manager,
-                embedding_init_retries=3,
-                embedding_init_backoff=1.0,
             )
         except EmbeddingServiceUnavailable as exc:
             logger.error(
