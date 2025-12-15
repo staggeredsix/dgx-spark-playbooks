@@ -75,3 +75,15 @@ curl http://localhost:8000/health
 - **Slow responses**: Check GPU availability and model size
 - **Memory errors**: Increase Docker memory limit or use smaller models
 - **Connection timeouts**: Verify WebSocket connections and firewall settings
+
+### RAG and embedding startup
+The vector store now performs a quick health check before trying to talk to the embedding
+endpoint. If your embedding service takes longer to come online, you can adjust the
+defaults via environment variables:
+
+- `EMBEDDING_HEALTH_RETRIES` / `EMBEDDING_HEALTH_TIMEOUT`: Control how many fast health
+  probes are attempted and how long each waits.
+- `EMBEDDING_INIT_RETRIES` / `EMBEDDING_INIT_BACKOFF`: Control how long to wait for the
+  embedding model to answer the initial dimension probe.
+- `EMBEDDING_DIMENSIONS`: Skip probing entirely by supplying a known embedding dimension
+  for your model (useful when you want the API to start immediately).
