@@ -13,6 +13,7 @@ RUN apt-get update && \
         ffmpeg \
         git \
         build-essential \
+        ninja-build \
     && rm -rf /var/lib/apt/lists/*
 
 RUN git clone https://github.com/Wan-Video/Wan2.2.git ${WAN_CODE_DIR}
@@ -22,6 +23,8 @@ WORKDIR /app
 COPY main.py /app/main.py
 
 RUN pip install --upgrade pip && \
+    pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu124 \
+        torch torchvision torchaudio && \
     pip install --no-cache-dir -r ${WAN_CODE_DIR}/requirements.txt && \
     pip install --no-cache-dir \
         fastapi \
@@ -29,7 +32,19 @@ RUN pip install --upgrade pip && \
         huggingface-hub \
         pydantic \
         pillow \
-        imageio[ffmpeg]
+        imageio[ffmpeg] && \
+    pip install --no-cache-dir --no-build-isolation flash-attn
+
+RUN TORCH_LIB_PATH=$(python - <<'PY'
+import os
+import torch
+
+print(os.path.join(os.path.dirname(torch.__file__), 'lib'))
+PY
+) && echo "Using torch libs at ${TORCH_LIB_PATH}" && \
+    echo "${TORCH_LIB_PATH}" > /tmp/torch_lib_path
+
+ENV LD_LIBRARY_PATH=$(cat /tmp/torch_lib_path):${LD_LIBRARY_PATH}
 
 RUN mkdir -p ${WAN_CKPT_DIR} ${WAN_OUT_DIR}
 
