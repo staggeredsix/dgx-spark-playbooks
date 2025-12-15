@@ -15,14 +15,11 @@
 # limitations under the License.
 #
 
-import asyncio
+import logging
 import os
 from pathlib import Path
-from typing import Type
-from pydantic import BaseModel, Field
 
-from langchain_core.tools import BaseTool
-from langchain_core.messages import SystemMessage, HumanMessage
+import httpx
 from mcp.server.fastmcp import FastMCP
 from openai import AsyncOpenAI
 
@@ -31,14 +28,91 @@ sys.path.append(str(Path(__file__).resolve().parents[2]))
 from config import ConfigManager  # noqa: E402
 
 mcp = FastMCP("Code Generation")
+logger = logging.getLogger(__name__)
 
 CONFIG_PATH = Path(__file__).resolve().parents[2] / "config.json"
 config_manager = ConfigManager(str(CONFIG_PATH))
 
 
 def _get_model_name() -> str:
+    env_model = os.getenv("CODEGEN_MODEL")
+    if env_model:
+        return env_model
+
     model = config_manager.get_code_model()
-    return model or os.getenv("CODE_MODEL", "qwen3-coder:30b")
+    return model or "gpt-oss:120b"
+
+
+def _get_codegen_settings() -> tuple[str, str | None, str, str]:
+    provider = os.getenv("CODEGEN_PROVIDER", "ollama").lower()
+    if provider != "openai":
+        base_url = os.getenv("OLLAMA_OPENAI_BASE_URL", "http://ollama:11434/v1")
+        api_key = os.getenv("OLLAMA_API_KEY", "ollama")
+        provider = "ollama"
+    else:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY is required when CODEGEN_PROVIDER=openai")
+        base_url = os.getenv("OPENAI_BASE_URL")
+
+    model = _get_model_name()
+    return provider, base_url, api_key, model
+
+
+def _create_client() -> AsyncOpenAI:
+    provider, base_url, api_key, model = _get_codegen_settings()
+    logger.info(
+        {
+            "message": "Starting code generation client",
+            "provider": provider,
+            "base_url": base_url,
+            "model": model,
+        }
+    )
+    return AsyncOpenAI(base_url=base_url, api_key=api_key)
+
+
+async def check_codegen_health(timeout: float = 5.0) -> tuple[bool, str]:
+    provider, base_url, api_key, model = _get_codegen_settings()
+    if provider == "openai":
+        try:
+            client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
+            await client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": "ping"}],
+                max_tokens=1,
+                temperature=0,
+            )
+            return True, "Codegen healthcheck succeeded"
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                {
+                    "message": "Codegen healthcheck failed",
+                    "provider": provider,
+                    "base_url": base_url,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                }
+            )
+            return False, str(exc)
+
+    health_url = f"{(base_url or '').rstrip('/')}/models"
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.get(health_url)
+            response.raise_for_status()
+        return True, "Codegen healthcheck succeeded"
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            {
+                "message": "Codegen healthcheck failed",
+                "provider": provider,
+                "base_url": base_url,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
+        )
+        return False, f"Codegen cannot reach Ollama at {health_url}: {exc}"
 
 
 @mcp.tool()
@@ -52,10 +126,8 @@ async def write_code(query: str, programming_language: str):
     Returns:
         The generated code.
     """
-    model_client = AsyncOpenAI(
-        base_url=os.getenv("LLM_API_BASE_URL", "http://localhost:11434/v1"),
-        api_key=os.getenv("LLM_API_KEY", "ollama")
-    )
+    provider, base_url, api_key, model = _get_codegen_settings()
+    model_client = _create_client()
     
     system_prompt = f"""You are an expert coder specializing in {programming_language}.
     Given a user request, generate clean, efficient {programming_language} code that accomplishes the specified task.
@@ -68,12 +140,24 @@ async def write_code(query: str, programming_language: str):
         {"role": "user", "content": query}
     ]
     
-    response = await model_client.chat.completions.create(
-        model=_get_model_name(),
-        messages=messages,
-        temperature=0.1,
-    )
-    
+    try:
+        response = await model_client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.1,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            {
+                "message": "Code generation request failed",
+                "provider": provider,
+                "base_url": base_url,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
+        )
+        raise
+
     generated_code = response.choices[0].message.content
     return generated_code.strip()
 
