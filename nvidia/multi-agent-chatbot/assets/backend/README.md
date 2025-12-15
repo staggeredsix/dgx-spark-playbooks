@@ -87,3 +87,14 @@ defaults via environment variables:
   embedding model to answer the initial dimension probe.
 - `EMBEDDING_DIMENSIONS`: Skip probing entirely by supplying a known embedding dimension
   for your model (useful when you want the API to start immediately).
+
+## Code generation configuration
+
+To keep the MCP code generation spoke on the local Ollama network endpoint, set the
+following in your environment:
+
+```
+CODEGEN_PROVIDER=ollama
+OLLAMA_OPENAI_BASE_URL=http://ollama:11434/v1
+CODEGEN_MODEL=gpt-oss:120b
+```

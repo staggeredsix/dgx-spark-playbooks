@@ -13,6 +13,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set
 import httpx
 
 from logger import logger
+from tools.mcp_servers import code_generation
 
 
 COMPLETION_SIGNAL = "Warmup complete"
@@ -274,6 +275,22 @@ class WarmupManager:
         try:
             await self._start_required_models()
 
+            codegen_ok, codegen_detail = await code_generation.check_codegen_health()
+            codegen_result = {
+                "name": "codegen-health",
+                "success": codegen_ok,
+                "detail": codegen_detail if codegen_ok else f"Codegen healthcheck failed: {codegen_detail}",
+                "tools_used": [],
+                "required_tools": [],
+                "final_message": "",
+            }
+            self.results.append(codegen_result)
+            if not codegen_ok:
+                self.status = "failed"
+                self.logs.append(codegen_result["detail"])
+                logger.error({"message": codegen_result["detail"]})
+                return
+
             tavily_image = (
                 "https://upload.wikimedia.org/wikipedia/sco/thumb/2/21/"
                 "Nvidia_logo.svg/500px-Nvidia_logo.svg.png?20150924223142"
@@ -452,7 +469,7 @@ class WarmupManager:
                     error = str(event.get("data"))
                     self.logs.append(f"[{name}] error: {error}")
         except Exception as exc:  # noqa: BLE001
-            error = str(exc)
+            error = f"{type(exc).__name__}: {exc}"
             self.logs.append(f"[{name}] exception: {error}")
 
         body = final_message or "".join(tokens)

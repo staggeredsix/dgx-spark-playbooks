@@ -5,6 +5,10 @@ from __future__ import annotations
 import logging
 from typing import Dict
 
+import httpcore
+import httpx
+from openai import APIConnectionError
+
 from ...mcp_servers import code_generation
 from ..tool_errors import tool_error
 
@@ -15,6 +19,9 @@ def register_tools(hub, _config):
     async def write_code_tool(query: str, programming_language: str) -> Dict[str, object]:
         try:
             return await code_generation.write_code(query, programming_language)
+        except (APIConnectionError, httpx.ConnectError, httpcore.ConnectError) as exc:  # pragma: no cover - network/LLM failures
+            logger.exception("Code generation failed")
+            raise
         except Exception as exc:  # pragma: no cover - network/LLM failures
             logger.exception("Code generation failed")
             return tool_error(
