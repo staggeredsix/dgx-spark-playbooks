@@ -323,11 +323,12 @@ class ChatAgent:
                             tool_result.pop("image_base64", None)
 
                     if image_markdown:
+                        image_url = stored_image_url or tool_result.get("image_url")
                         await self.stream_callback({
                             "type": "image",
                             "content": image_markdown,
-                            "raw": stored_image_url or tool_result.get("image_base64"),
-                            "url": stored_image_url,
+                            "raw": image_url or tool_result.get("image_base64"),
+                            "url": image_url,
                         })
 
                         if tool_call["name"] == "generate_image":
