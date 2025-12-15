@@ -17,6 +17,7 @@
 import type React from "react";
 import { useRef, useEffect, useState, useCallback } from "react";
 import { backendFetch, buildBackendUrl, buildWebSocketUrl } from "@/utils/backend";
+import { dataUriToBlobUrl, isDataUri, revokeUrl } from "@/utils/media";
 import styles from "@/styles/QuerySection.module.css";
 import ReactMarkdown from 'react-markdown'; // NEW
 import remarkGfm from 'remark-gfm'; // NEW
@@ -109,7 +110,7 @@ function resolveMediaSrc(raw: string | undefined | null): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
 
-  if (/^data:(?:image|video)\//i.test(trimmed)) return isValidDataUri(trimmed) ? trimmed : null;
+  if (isDataUri(trimmed)) return isValidDataUri(trimmed) ? trimmed : null;
 
   if (/^(https?:\/\/|blob:)/i.test(trimmed)) return trimmed;
 
@@ -120,14 +121,36 @@ function resolveMediaSrc(raw: string | undefined | null): string | null {
   return null;
 }
 
+function createBlobUrlFromDataUri(
+  raw: string | undefined | null,
+  registerObjectUrl?: (url: string) => void,
+  cache?: Map<string, string>,
+): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!isDataUri(trimmed)) return null;
+
+  const blob = dataUriToBlobUrl(trimmed, cache);
+  if (blob?.url) {
+    registerObjectUrl?.(blob.url);
+    return blob.url;
+  }
+
+  return null;
+}
+
 function createBlobUrlFromImage(
   raw: string | undefined | null,
+  registerObjectUrl?: (url: string) => void,
   cache?: Map<string, string>,
 ): string | null {
   if (!raw) return null;
 
   const trimmed = raw.trim();
   if (!trimmed) return null;
+
+  const dataUriBlob = createBlobUrlFromDataUri(trimmed, registerObjectUrl, cache);
+  if (dataUriBlob) return dataUriBlob;
 
   const dataUriMatch = trimmed.match(/^data:image\/[^;]+;base64,(.+)$/i);
   const compact = trimmed.replace(/\s+/g, "");
@@ -145,6 +168,7 @@ function createBlobUrlFromImage(
     const blob = new Blob([decoded], { type: "image/png" });
     const url = URL.createObjectURL(blob);
     cache?.set(base64Payload, url);
+    registerObjectUrl?.(url);
     return url;
   } catch {
     return null;
@@ -157,12 +181,28 @@ function formatImageSrc(
   cache?: Map<string, string>,
 ): string | null {
   const resolved = resolveMediaSrc(raw);
-  const blobUrl = createBlobUrlFromImage(resolved ?? raw, cache);
+  const blobUrl = createBlobUrlFromImage(resolved ?? raw, registerObjectUrl, cache);
 
   if (blobUrl) {
     registerObjectUrl?.(blobUrl);
     return blobUrl;
   }
+
+  if (resolved && !resolved.startsWith("data:")) return resolved;
+
+  return null;
+}
+
+function formatVideoSrc(
+  raw: string | undefined | null,
+  registerObjectUrl?: (url: string) => void,
+  cache?: Map<string, string>,
+): string | null {
+  const resolved = resolveMediaSrc(raw);
+  const candidate = resolved ?? raw;
+
+  const blob = createBlobUrlFromDataUri(candidate, registerObjectUrl, cache);
+  if (blob) return blob;
 
   if (resolved && !resolved.startsWith("data:")) return resolved;
 
@@ -187,6 +227,55 @@ function stripVideoMarkup(content?: string): string {
     .replace(/<video[^>]*>[\s\S]*?<\/video>/gi, "")
     .replace(/<a[^>]+data:video[^>]*>.*?<\/a>/gi, "")
     .trim();
+}
+
+const MEDIA_FIELDS = ["image", "image_base64", "video", "video_base64", "media", "image_url", "video_url"] as const;
+
+function stripDataUrisFromText(content?: string): string {
+  if (!content) return "";
+  return content
+    .replace(/data:video\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/gi, "[video]")
+    .replace(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/gi, "[image]");
+}
+
+function sanitizePayloadForDisplay(payload: Record<string, unknown>): Record<string, unknown> {
+  const clone: Record<string, unknown> = {};
+  Object.entries(payload).forEach(([key, value]) => {
+    if (typeof value === "string" && isDataUri(value)) {
+      clone[key] = `[${key} omitted]`;
+    } else {
+      clone[key] = value;
+    }
+  });
+  return clone;
+}
+
+function inferMediaType(value: string, fallback: "image" | "video" = "image"): "image" | "video" {
+  if (/^data:video\//i.test(value)) return "video";
+  if (/^data:image\//i.test(value)) return "image";
+  if (/\.(mp4|mov|webm|mkv)(?:\?|$)/i.test(value)) return "video";
+  if (/\.(png|jpe?g|gif|webp|bmp|svg)(?:\?|$)/i.test(value)) return "image";
+  if (/video/i.test(value)) return "video";
+  return fallback;
+}
+
+function extractStructuredContent(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
 }
 
 export function makeChatTheme(isDark: boolean) {
@@ -379,16 +468,16 @@ export default function QuerySection({
   const hasAssistantContent = useRef(false);
   const fadeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const objectUrlsRef = useRef<Set<string>>(new Set());
-  const imageBlobCache = useRef<Map<string, string>>(new Map());
+  const mediaBlobCache = useRef<Map<string, string>>(new Map());
 
   const registerObjectUrl = useCallback((url: string) => {
     objectUrlsRef.current.add(url);
   }, []);
 
   useEffect(() => () => {
-    objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    objectUrlsRef.current.forEach((url) => revokeUrl(url, mediaBlobCache.current));
     objectUrlsRef.current.clear();
-    imageBlobCache.current.clear();
+    mediaBlobCache.current.clear();
   }, []);
 
   const normalizeMessages = useCallback((raw: string): Message[] => {
@@ -396,30 +485,77 @@ export default function QuerySection({
       const parsed = JSON.parse(raw);
       return Array.isArray(parsed)
         ? parsed.map((msg: any): Message => {
-            const content = typeof msg?.content === "string" ? msg.content : String(msg?.content ?? "");
+            const structuredContent = extractStructuredContent(msg?.content);
+            const baseContent = typeof msg?.content === "string" ? msg.content : "";
+            const normalizedPayload = structuredContent
+              ? JSON.stringify(sanitizePayloadForDisplay(structuredContent), null, 2)
+              : "";
+            const content = baseContent || normalizedPayload;
             const markdownImageMatch = content.match(/!\[[^\]]*]\(([^)]+)\)/);
             const embeddedImageSrc = markdownImageMatch?.[1];
-            const formattedImageSrc = formatImageSrc(
-              embeddedImageSrc || content,
-              registerObjectUrl,
-              imageBlobCache.current,
-            );
-            const dataUriMatch = content.match(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/);
-            const validDataUri = dataUriMatch && isValidDataUri(dataUriMatch[0]) ? dataUriMatch[0] : null;
-            const imageSrc =
-              formattedImageSrc ||
-              (validDataUri ? formatImageSrc(validDataUri, registerObjectUrl, imageBlobCache.current) : null);
-            const normalizedContent =
-              imageSrc && !content.includes("![") && !markdownImageMatch
-                ? `![Generated image](${imageSrc})`
-                : content;
+
+            const readField = (fields: readonly string[]): string | undefined => {
+              for (const field of fields) {
+                const fromMessage = typeof msg?.[field] === "string" ? (msg as any)[field] : undefined;
+                if (fromMessage) return fromMessage;
+                const fromContent = structuredContent && typeof structuredContent[field] === "string"
+                  ? (structuredContent[field] as string)
+                  : undefined;
+                if (fromContent) return fromContent;
+              }
+              return undefined;
+            };
+
+            const rawImage = readField(["image", "image_base64", "image_url"]);
+            const rawVideoField = readField(["video", "video_base64", "video_url"]);
+            const rawMedia = readField(MEDIA_FIELDS);
             const rawVideoSrc =
               typeof msg?.videoUrl === "string"
                 ? msg.videoUrl
                 : typeof msg?.videoSrc === "string"
                   ? msg.videoSrc
                   : undefined;
-            const videoSrc = resolveMediaSrc(rawVideoSrc) || extractVideoSrc(content);
+            const dataUriMatch = content.match(/data:(image|video)\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/i);
+
+            let imageCandidate = rawImage;
+            let videoCandidate = rawVideoField || rawVideoSrc || undefined;
+
+            if (rawMedia) {
+              const mediaType = inferMediaType(rawMedia, rawVideoField ? "video" : "image");
+              if (mediaType === "video" && !videoCandidate) {
+                videoCandidate = rawMedia;
+              } else if (!imageCandidate) {
+                imageCandidate = rawMedia;
+              }
+            }
+
+            if (dataUriMatch?.[0]) {
+              const type = inferMediaType(dataUriMatch[0], "image");
+              if (type === "video" && !videoCandidate) {
+                videoCandidate = dataUriMatch[0];
+              } else if (!imageCandidate) {
+                imageCandidate = dataUriMatch[0];
+              }
+            }
+
+            const formattedImageSrc = formatImageSrc(
+              embeddedImageSrc || imageCandidate || content,
+              registerObjectUrl,
+              mediaBlobCache.current,
+            );
+            const formattedVideoSrc =
+              formatVideoSrc(
+                videoCandidate || extractVideoSrc(content) || rawVideoSrc,
+                registerObjectUrl,
+                mediaBlobCache.current,
+              ) ||
+              undefined;
+
+            const cleanedContent =
+              stripDataUrisFromText(content) ||
+              (formattedImageSrc ? "[image]" : formattedVideoSrc ? "[video]" : "");
+            const normalizedContent =
+              cleanedContent || (formattedVideoSrc ? "[video]" : formattedImageSrc ? "[image]" : "");
 
             return {
               type:
@@ -429,12 +565,16 @@ export default function QuerySection({
                   ? "ToolMessage"
                   : "AssistantMessage",
               content: normalizedContent,
-              isImage: Boolean(msg?.isImage) || Boolean(imageSrc) || Boolean(markdownImageMatch),
-              isVideo: Boolean(msg?.isVideo) || Boolean(videoSrc),
-              videoSrc,
+              isImage:
+                Boolean(msg?.isImage) ||
+                Boolean(formattedImageSrc) ||
+                Boolean(markdownImageMatch) ||
+                Boolean(rawMedia && inferMediaType(rawMedia, rawVideoField ? "video" : "image") === "image"),
+              isVideo: Boolean(msg?.isVideo) || Boolean(formattedVideoSrc),
+              videoSrc: formattedVideoSrc || undefined,
               downloadName: typeof msg?.downloadName === "string" ? msg.downloadName : undefined,
-              imageSrc: imageSrc || undefined,
-              imageObjectUrl: imageSrc?.startsWith("blob:") ? imageSrc : undefined,
+              imageSrc: formattedImageSrc || undefined,
+              imageObjectUrl: formattedImageSrc?.startsWith("blob:") ? formattedImageSrc : undefined,
             };
           })
         : [];
@@ -533,10 +673,10 @@ export default function QuerySection({
               const contentImage = typeof msg.content === "string" ? msg.content : "";
               const textImage = typeof text === "string" ? text : "";
               const imageSrc =
-                formatImageSrc(providedUrl, registerObjectUrl, imageBlobCache.current) ??
-                formatImageSrc(rawImage, registerObjectUrl, imageBlobCache.current) ??
-                formatImageSrc(contentImage, registerObjectUrl, imageBlobCache.current) ??
-                formatImageSrc(textImage, registerObjectUrl, imageBlobCache.current);
+                formatImageSrc(providedUrl, registerObjectUrl, mediaBlobCache.current) ??
+                formatImageSrc(rawImage, registerObjectUrl, mediaBlobCache.current) ??
+                formatImageSrc(contentImage, registerObjectUrl, mediaBlobCache.current) ??
+                formatImageSrc(textImage, registerObjectUrl, mediaBlobCache.current);
               const imageMarkdown = imageSrc
                 ? `![Generated image](${imageSrc})`
                 : contentImage || textImage || "[image available]";
@@ -895,7 +1035,7 @@ export default function QuerySection({
       );
     },
     img({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) {
-      const resolvedSrc = formatImageSrc(src || "", registerObjectUrl, imageBlobCache.current);
+      const resolvedSrc = formatImageSrc(src || "", registerObjectUrl, mediaBlobCache.current);
       if (!resolvedSrc) {
         return alt ? <span aria-label={alt}>{alt}</span> : null;
       }
@@ -932,7 +1072,12 @@ export default function QuerySection({
         {parseMessages(response).map((message, index) => {
           const isHuman = message.type === "HumanMessage";
           const key = `${message.type}-${index}`;
-          const videoSrc = resolveMediaSrc(message.videoSrc) || extractVideoSrc(message.content);
+          const videoSrc =
+            formatVideoSrc(
+              message.videoSrc || extractVideoSrc(message.content),
+              registerObjectUrl,
+              mediaBlobCache.current,
+            ) || null;
           const cleanedContent = message.isVideo ? stripVideoMarkup(message.content) : message.content;
           const shouldRenderMarkdown = Boolean(cleanedContent?.trim());
           const imageSrc = message.isImage
@@ -940,14 +1085,14 @@ export default function QuerySection({
               (() => {
                 const markdownMatch = cleanedContent?.match(/!\[[^\]]*]\(([^)]+)\)/);
                 return (
-                  formatImageSrc(markdownMatch?.[1], registerObjectUrl, imageBlobCache.current) ||
-                  formatImageSrc(message.content, registerObjectUrl, imageBlobCache.current) ||
-                  formatImageSrc(cleanedContent, registerObjectUrl, imageBlobCache.current)
+                  formatImageSrc(markdownMatch?.[1], registerObjectUrl, mediaBlobCache.current) ||
+                  formatImageSrc(message.content, registerObjectUrl, mediaBlobCache.current) ||
+                  formatImageSrc(cleanedContent, registerObjectUrl, mediaBlobCache.current)
                 );
               })()
             : null;
 
-          if (!message.content?.trim() && !videoSrc) return null;
+          if (!message.content?.trim() && !videoSrc && !imageSrc) return null;
 
           return (
             <div
