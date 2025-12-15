@@ -19,6 +19,7 @@ import os
 import time
 from typing import Callable, List, Optional
 
+import httpx
 from dotenv import load_dotenv
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -84,12 +85,18 @@ class VectorStore:
             self.embedding_init_retries = (
                 embedding_init_retries
                 if embedding_init_retries is not None
-                else int(os.getenv("EMBEDDING_INIT_RETRIES", "40"))
+                else int(os.getenv("EMBEDDING_INIT_RETRIES", "15"))
             )
             self.embedding_init_backoff = (
                 embedding_init_backoff
                 if embedding_init_backoff is not None
-                else float(os.getenv("EMBEDDING_INIT_BACKOFF", "3"))
+                else float(os.getenv("EMBEDDING_INIT_BACKOFF", "2"))
+            )
+            self.embedding_health_retries = int(
+                os.getenv("EMBEDDING_HEALTH_RETRIES", "5")
+            )
+            self.embedding_health_timeout = float(
+                os.getenv("EMBEDDING_HEALTH_TIMEOUT", "5")
             )
             self.embeddings = embeddings or OllamaEmbeddings(
                 model=self.embedding_model,
@@ -199,6 +206,28 @@ class VectorStore:
             })
 
     def _get_embedding_dimensions(self) -> int:
+        configured_dimensions = os.getenv("EMBEDDING_DIMENSIONS")
+        if configured_dimensions:
+            try:
+                dimensions = int(configured_dimensions)
+                if dimensions > 0:
+                    logger.info(
+                        {
+                            "message": "Using preconfigured embedding dimensions",
+                            "dimensions": dimensions,
+                        }
+                    )
+                    return dimensions
+                raise ValueError("Embedding dimensions must be positive")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    {
+                        "message": "Invalid EMBEDDING_DIMENSIONS value; falling back to probe",
+                        "value": configured_dimensions,
+                        "error": str(exc),
+                    }
+                )
+
         max_attempts = self.embedding_init_retries
         backoff = self.embedding_init_backoff
         last_error = None
@@ -208,6 +237,8 @@ class VectorStore:
             "max_attempts": max_attempts,
             "backoff_seconds": backoff,
         })
+
+        self._verify_embedding_service()
 
         for attempt in range(1, max_attempts + 1):
             try:
@@ -241,6 +272,58 @@ class VectorStore:
             or f"Embedding service unavailable at {self.embedding_base_url}. "
             f"Verify the service is running and model '{self.embedding_model}' is available."
         ) from last_error
+
+    def _verify_embedding_service(self) -> None:
+        """Quickly ensure the embedding host is reachable before heavy probes."""
+
+        health_url = f"{self.embedding_base_url}/api/tags"
+        last_error: Optional[Exception] = None
+
+        logger.info(
+            {
+                "message": "Checking embedding service availability",
+                "url": health_url,
+                "max_attempts": self.embedding_health_retries,
+                "timeout_seconds": self.embedding_health_timeout,
+            }
+        )
+
+        for attempt in range(1, self.embedding_health_retries + 1):
+            try:
+                response = httpx.get(health_url, timeout=self.embedding_health_timeout)
+                if response.status_code < 500:
+                    logger.debug(
+                        {
+                            "message": "Embedding service responded to health check",
+                            "attempt": attempt,
+                            "status_code": response.status_code,
+                        }
+                    )
+                    return
+                last_error = RuntimeError(
+                    f"Unexpected status code {response.status_code} from embedding host"
+                )
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                logger.debug(
+                    {
+                        "message": "Embedding health check failed",
+                        "attempt": attempt,
+                        "error": str(exc),
+                    }
+                )
+
+            time.sleep(self.embedding_init_backoff)
+
+        logger.error(
+            {
+                "message": "Embedding service health checks failed",
+                "url": health_url,
+                "attempts": self.embedding_health_retries,
+                "error": str(last_error) if last_error else None,
+            }
+        )
+        raise EmbeddingServiceUnavailable(last_error)
 
     def _load_documents(self, file_paths: List[str] = None, input_dir: str = None) -> List[str]:
         try:
