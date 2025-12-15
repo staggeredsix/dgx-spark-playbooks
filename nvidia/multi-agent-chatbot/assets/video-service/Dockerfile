@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 1993-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-FROM nvcr.io/nvidia/pytorch:25.01-py3
+FROM nvcr.io/nvidia/pytorch:25.11-py3
 
 ENV DEBIAN_FRONTEND=noninteractive \
     WAN_CODE_DIR=/opt/wan2.2 \
@@ -35,16 +35,17 @@ RUN pip install --upgrade pip && \
         imageio[ffmpeg] && \
     pip install --no-cache-dir --no-build-isolation flash-attn
 
-RUN TORCH_LIB_PATH=$(python - <<'PY'
+RUN python - <<'PY'
 import os
 import torch
 
-print(os.path.join(os.path.dirname(torch.__file__), 'lib'))
+lib = os.path.join(os.path.dirname(torch.__file__), "lib")
+print(f"Using torch libs at {lib}")
+with open("/etc/ld.so.conf.d/torch.conf", "w", encoding="utf-8") as f:
+    f.write(lib + "\n")
 PY
-) && echo "Using torch libs at ${TORCH_LIB_PATH}" && \
-    echo "${TORCH_LIB_PATH}" > /tmp/torch_lib_path
-
-ENV LD_LIBRARY_PATH=$(cat /tmp/torch_lib_path):${LD_LIBRARY_PATH}
+RUN ldconfig
+RUN python -c "import torch; assert torch.cuda.is_available(); print(torch.__version__, torch.version.cuda)"
 
 RUN mkdir -p ${WAN_CKPT_DIR} ${WAN_OUT_DIR}
 
