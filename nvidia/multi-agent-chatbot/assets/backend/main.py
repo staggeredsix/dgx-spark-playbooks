@@ -156,10 +156,29 @@ app.add_middleware(
 GENERATED_MEDIA_DIR = DEFAULT_GENERATED_MEDIA_DIR
 GENERATED_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 
+REPO_ROOT = Path(__file__).resolve().parents[4]
+IMAGE_OUTPUT_DIR = Path(os.getenv("IMAGE_GENERATION_DIR", REPO_ROOT / "image_generation_output"))
+VIDEO_OUTPUT_DIR = Path(os.getenv("VIDEO_GENERATION_DIR", REPO_ROOT / "video_generation_output"))
+
+for directory in (IMAGE_OUTPUT_DIR, VIDEO_OUTPUT_DIR):
+    directory.mkdir(parents=True, exist_ok=True)
+
 app.mount(
     "/generated-media",
     StaticFiles(directory=GENERATED_MEDIA_DIR, check_dir=False),
     name="generated-media",
+)
+
+app.mount(
+    "/image_generation_output",
+    StaticFiles(directory=IMAGE_OUTPUT_DIR, check_dir=False),
+    name="image-generation-output",
+)
+
+app.mount(
+    "/video_generation_output",
+    StaticFiles(directory=VIDEO_OUTPUT_DIR, check_dir=False),
+    name="video-generation-output",
 )
 
 

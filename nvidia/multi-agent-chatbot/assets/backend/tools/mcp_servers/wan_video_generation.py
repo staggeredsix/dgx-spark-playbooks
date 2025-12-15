@@ -14,65 +14,56 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-MCP server that proxies Wan2.2 text-to-video requests to the dedicated video-service container.
+MCP server that executes the local media generation script for text-to-video requests.
 """
 
 from __future__ import annotations
 
-import os
+import json
+import subprocess
+import sys
+import uuid
 from pathlib import Path
 from typing import Optional
 
-import requests
 from mcp.server.fastmcp import FastMCP
-
-import sys
-
-sys.path.append(str(Path(__file__).resolve().parents[2]))
-from config import ConfigManager  # noqa: E402
-
-def _resolve_service_url() -> str:
-    return os.getenv("VIDEO_SERVICE_URL", "http://video-service:8081")
 
 
 mcp = FastMCP("Wan2.2 Video Generation")
-CONFIG_PATH = Path(__file__).resolve().parents[2] / "config.json"
-config_manager = ConfigManager(str(CONFIG_PATH))
-
-
-def _resolve_hf_token(overrides: Optional[str] = None) -> Optional[str]:
-    return (
-        overrides
-        or config_manager.get_hf_api_key()
-        or os.getenv("HUGGINGFACEHUB_API_TOKEN")
-        or os.getenv("HF_TOKEN")
-    )
+SCRIPT_PATH = Path(__file__).resolve().parent.parent / "media_generation.py"
 
 
 @mcp.tool()
 async def generate_video(prompt: str, hf_api_key: Optional[str] = None):
-    """Generate a short MP4 video using the Wan2.2 GGUF text-to-video model."""
+    """Run the local video generation script with a unique request ID."""
 
-    token = _resolve_hf_token(hf_api_key)
-    payload = {"prompt": prompt, "hf_api_key": token}
-
-    response = requests.post(
-        f"{_resolve_service_url().rstrip('/')}/generate_video",
-        json=payload,
-        timeout=int(os.getenv("VIDEO_SERVICE_TIMEOUT", "600")),
-    )
+    request_id = uuid.uuid4().hex
+    command = [
+        sys.executable,
+        str(SCRIPT_PATH),
+        "video",
+        "--prompt",
+        prompt.strip(),
+        "--request-id",
+        request_id,
+    ]
 
     try:
-        response.raise_for_status()
-    except Exception as exc:
-        raise RuntimeError(f"Wan video service returned an error: {response.text}") from exc
+        result = subprocess.run(command, capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(f"Video generation script failed: {exc.stderr or exc.stdout}") from exc
 
-    data = response.json()
-    expected_keys = {"video_base64", "video_markdown"}
-    if not expected_keys.issubset(data):
-        raise ValueError("Wan video service response missing expected video payload.")
+    try:
+        payload = json.loads(result.stdout.strip())
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Video generation script returned invalid payload.") from exc
 
-    return data
+    return {
+        "request_id": payload.get("request_id", request_id),
+        "video_path": payload.get("file_path"),
+        "video_url": payload.get("file_url"),
+        "video_markdown": payload.get("markdown"),
+    }
 
 
 if __name__ == "__main__":
