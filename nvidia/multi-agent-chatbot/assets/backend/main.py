@@ -156,7 +156,24 @@ app.add_middleware(
 GENERATED_MEDIA_DIR = DEFAULT_GENERATED_MEDIA_DIR
 GENERATED_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
+def _determine_repo_root() -> Path:
+    """Determine a sensible repository root without raising IndexError.
+
+    When the backend is copied into a flat /app directory inside the container,
+    ``Path(__file__).resolve().parents[4]`` is out of range. Prefer an explicit
+    ``REPO_ROOT`` environment variable, otherwise use a best-effort parent.
+    """
+
+    env_root = os.getenv("REPO_ROOT")
+    if env_root:
+        return Path(env_root)
+
+    resolved_path = Path(__file__).resolve()
+    # Fall back to the closest available parent if the expected depth is missing
+    return resolved_path.parents[4] if len(resolved_path.parents) > 4 else resolved_path.parent
+
+
+REPO_ROOT = _determine_repo_root()
 IMAGE_OUTPUT_DIR = Path(os.getenv("IMAGE_GENERATION_DIR", REPO_ROOT / "image_generation_output"))
 VIDEO_OUTPUT_DIR = Path(os.getenv("VIDEO_GENERATION_DIR", REPO_ROOT / "video_generation_output"))
 

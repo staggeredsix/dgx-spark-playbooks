@@ -22,7 +22,18 @@ from uuid import uuid4
 
 from PIL import Image, ImageDraw, ImageFont
 
-REPO_ROOT = Path(__file__).resolve().parents[5]
+def _determine_repo_root() -> Path:
+    """Locate the repository root without assuming a fixed directory depth."""
+
+    env_root = os.getenv("REPO_ROOT")
+    if env_root:
+        return Path(env_root)
+
+    resolved_path = Path(__file__).resolve()
+    return resolved_path.parents[5] if len(resolved_path.parents) > 5 else resolved_path.parent
+
+
+REPO_ROOT = _determine_repo_root()
 IMAGE_OUTPUT_DIR = Path(os.getenv("IMAGE_GENERATION_DIR", REPO_ROOT / "image_generation_output"))
 VIDEO_OUTPUT_DIR = Path(os.getenv("VIDEO_GENERATION_DIR", REPO_ROOT / "video_generation_output"))
 IMAGE_URL_PREFIX = "/image_generation_output"
