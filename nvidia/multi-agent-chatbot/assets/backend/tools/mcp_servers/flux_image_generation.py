@@ -107,6 +107,10 @@ async def generate_image(
         raise RuntimeError("FLUX service returned invalid JSON response.") from exc
 
     image_markdown = payload.get("image_markdown")
+    image_url = payload.get("image_url")
+    if not image_markdown and image_url:
+        image_markdown = f"![FLUX generated image]({image_url})"
+
     if not image_markdown:
         raise RuntimeError("FLUX service did not return an image payload.")
 
@@ -114,6 +118,7 @@ async def generate_image(
         "request_id": request_id,
         "image_markdown": image_markdown,
         "image_base64": payload.get("image_base64") or payload.get("image"),
+        "image_url": image_url or payload.get("image"),
         "model": payload.get("model"),
         "provider": payload.get("provider"),
     }

@@ -213,6 +213,11 @@ async def generate_image(request: GenerateImageRequest):
             "seed": int(used_seed),
         }
     )
+
+    # Prefer the persisted PNG URL for downstream consumers so the frontend can
+    # render the saved file instead of an inlined base64 payload.
+    response["image_markdown"] = f"![FLUX generated image]({image_url})"
+    response["image"] = image_url
     return response
 
 
