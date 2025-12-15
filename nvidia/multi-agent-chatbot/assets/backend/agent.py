@@ -47,6 +47,8 @@ class State(TypedDict, total=False):
     messages: List[AnyMessage]
     chat_id: Optional[str]
     image_data: Optional[str]
+    skip_llm_after_media: bool
+    media_final_content: Optional[str]
 
 
 class ChatAgent:
@@ -280,6 +282,9 @@ class ChatAgent:
         outputs = []
         messages = state.get("messages", [])
         last_message = messages[-1]
+        skip_followup_generation = False
+        media_response_parts: list[str] = []
+
         for i, tool_call in enumerate(last_message.tool_calls):
             logger.debug(f'Executing tool {i+1}/{len(last_message.tool_calls)}: {tool_call["name"]} with args: {tool_call["args"]}')
             await self.stream_callback({'type': 'tool_start', 'data': tool_call["name"]})
@@ -324,6 +329,10 @@ class ChatAgent:
                             "raw": stored_image_url or tool_result.get("image_base64"),
                             "url": stored_image_url,
                         })
+
+                        if tool_call["name"] == "generate_image":
+                            media_response_parts.append(image_markdown)
+                            skip_followup_generation = True
 
                         payload_for_model = {k: v for k, v in tool_result.items() if k not in {"image_base64", "image"}}
                         if stored_image_url:
@@ -376,6 +385,10 @@ class ChatAgent:
                             "filename": download_name,
                         })
 
+                        if tool_call["name"] == "generate_video":
+                            media_response_parts.append(tool_result.get("video_markdown"))
+                            skip_followup_generation = True
+
                 if "code" in tool_call["name"]:
                     content = str(tool_result)
                 elif isinstance(tool_result, str):
@@ -398,6 +411,13 @@ class ChatAgent:
                 )
             )
 
+        if skip_followup_generation and media_response_parts:
+            state["skip_llm_after_media"] = True
+            state["media_final_content"] = "\n\n".join(media_response_parts)
+        else:
+            state.pop("skip_llm_after_media", None)
+            state.pop("media_final_content", None)
+
         state["iterations"] = state.get("iterations", 0) + 1
         
         logger.debug({
@@ -408,7 +428,12 @@ class ChatAgent:
             "next_step": "→ returning to generate"
         })
         await self.stream_callback({'type': 'node_end', 'data': 'tool_node'})
-        return {"messages": messages + outputs, "iterations": state.get("iterations", 0) + 1}
+        return {
+            "messages": messages + outputs,
+            "iterations": state.get("iterations", 0) + 1,
+            "skip_llm_after_media": state.get("skip_llm_after_media"),
+            "media_final_content": state.get("media_final_content"),
+        }
 
     async def generate(self, state: State) -> Dict[str, Any]:
         """Generate AI response using the current model.
@@ -419,6 +444,14 @@ class ChatAgent:
         Returns:
             Updated state with new AI message
         """
+        if state.get("skip_llm_after_media"):
+            content = state.get("media_final_content") or "Here is your generated media."
+            await self.stream_callback({'type': 'node_start', 'data': 'generate'})
+            await self.stream_callback({'type': 'token', 'data': content})
+            response = AIMessage(content=content)
+            await self.stream_callback({'type': 'node_end', 'data': 'generate'})
+            return {"messages": state.get("messages", []) + [response]}
+
         messages = convert_langgraph_messages_to_openai(state.get("messages", []))
         logger.debug({
             "message": "GRAPH: ENTERING NODE - generate",
