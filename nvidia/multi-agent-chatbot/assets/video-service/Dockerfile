@@ -32,6 +32,7 @@ RUN pip install --upgrade pip && \
         huggingface-hub \
         pydantic \
         pillow \
+        decord \
         imageio[ffmpeg] && \
     pip install --no-cache-dir --no-build-isolation --no-deps flash-attn
 

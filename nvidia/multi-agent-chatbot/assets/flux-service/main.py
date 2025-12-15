@@ -8,11 +8,14 @@ import io
 import logging
 import os
 import time
+from pathlib import Path
 from typing import Optional
+from uuid import uuid4
 
 import torch
 from diffusers import FluxPipeline
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from PIL import Image
 
@@ -24,6 +27,7 @@ FLUX_MODEL_ID = os.environ.get("FLUX_MODEL_ID", DEFAULT_FLUX_MODEL_ID)
 FLUX_MODEL_DIR = os.environ.get("FLUX_MODEL_DIR")
 FLUX_MODEL_SUBDIR = os.environ.get("FLUX_MODEL_SUBDIR")
 HF_TOKEN = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACEHUB_API_TOKEN")
+FLUX_OUTPUT_DIR = Path(os.environ.get("FLUX_OUTPUT_DIR", "/outputs")).resolve()
 
 app = FastAPI(title="FLUX Image Service", version="1.0")
 
@@ -52,6 +56,8 @@ _provider = "diffusers"
 _model_id = FLUX_MODEL_ID
 _model_location: str | None = None
 _model_cache = os.getenv("HF_HOME", os.path.join(os.path.expanduser("~"), ".cache", "huggingface"))
+_output_dir = FLUX_OUTPUT_DIR
+_output_dir.mkdir(parents=True, exist_ok=True)
 
 
 def _encode_image(image: Image.Image | bytes) -> dict:
@@ -155,10 +161,9 @@ async def generate_image(request: GenerateImageRequest):
                 _model_location,
             )
 
-    generator = None
-    if request.seed is not None:
-        generator = torch.Generator(device="cuda")
-        generator.manual_seed(request.seed)
+    used_seed = request.seed if request.seed is not None else torch.seed()
+    generator = torch.Generator(device="cuda")
+    generator.manual_seed(int(used_seed))
 
     try:
         start = time.perf_counter()
@@ -189,15 +194,37 @@ async def generate_image(request: GenerateImageRequest):
         logger.exception("FLUX pipeline inference failed")
         raise HTTPException(status_code=500, detail=f"FLUX pipeline inference failed: {exc}")
 
+    filename = f"{uuid4()}.png"
+    output_path = _output_dir / filename
+    try:
+        image.save(output_path, format="PNG")
+    except Exception as exc:  # pragma: no cover - disk/write errors
+        logger.exception("Failed to save generated image")
+        raise HTTPException(status_code=500, detail=f"Failed to save generated image: {exc}")
+
+    image_url = f"http://flux-service:8080/images/{filename}"
     response = _encode_image(image)
     response.update(
         {
             "prompt": request.prompt,
             "model": _model_id,
             "provider": _provider,
+            "image_url": image_url,
+            "seed": int(used_seed),
         }
     )
     return response
+
+
+@app.get("/images/{name}")
+async def get_image(name: str):
+    safe_name = os.path.basename(name)
+    image_path = (_output_dir / safe_name).resolve()
+    if not str(image_path).startswith(str(_output_dir)):
+        raise HTTPException(status_code=400, detail="Invalid image path")
+    if not image_path.exists():
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(image_path, media_type="image/png")
 
 
 if __name__ == "__main__":

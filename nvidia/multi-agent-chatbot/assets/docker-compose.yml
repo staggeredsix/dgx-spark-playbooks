@@ -98,11 +98,13 @@ services:
       - FLUX_MODEL_DIR=${FLUX_MODEL_DIR:-/models/flux-schnell}
       - HUGGINGFACEHUB_API_TOKEN=${HUGGINGFACEHUB_API_TOKEN}
       - HF_TOKEN=${HF_TOKEN}
+      - FLUX_OUTPUT_DIR=${FLUX_OUTPUT_DIR:-/outputs}
     ports:
       - "8080:8080"
     volumes:
       - ./flux-schnell:/models/flux-schnell
       - hf-cache:/models/hf_cache
+      - flux-outputs:/outputs
     restart: unless-stopped
     gpus: all
 
@@ -174,6 +176,7 @@ volumes:
   neo4j_data:
   neo4j_logs:
   wan-models:
+  flux-outputs:
 
 networks:
   default:
