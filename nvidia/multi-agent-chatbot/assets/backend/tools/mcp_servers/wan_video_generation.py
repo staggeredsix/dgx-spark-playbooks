@@ -13,56 +13,70 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-MCP server that executes the local media generation script for text-to-video requests.
-"""
+"""MCP server that calls the WAN inference service for video generation."""
 
 from __future__ import annotations
 
-import json
-import subprocess
+import os
 import sys
 import uuid
 from pathlib import Path
 from typing import Optional
 
+import requests
 from mcp.server.fastmcp import FastMCP
+
+sys.path.append(str(Path(__file__).resolve().parents[2]))
+from config import ConfigManager  # noqa: E402
 
 
 mcp = FastMCP("Wan2.2 Video Generation")
-SCRIPT_PATH = Path(__file__).resolve().parent.parent / "media_generation.py"
+CONFIG_PATH = Path(__file__).resolve().parents[2] / "config.json"
+config_manager = ConfigManager(str(CONFIG_PATH))
+WAN_SERVICE_URL = os.getenv("WAN_SERVICE_URL", "http://localhost:8080")
 
 
 @mcp.tool()
 async def generate_video(prompt: str, hf_api_key: Optional[str] = None):
-    """Run the local video generation script with a unique request ID."""
+    """Generate a video via the WAN inference service."""
+
+    payload = {
+        "prompt": prompt.strip(),
+        "hf_api_key": hf_api_key or config_manager.get_hf_api_key(),
+    }
+
+    sanitized_payload = {k: v for k, v in payload.items() if v is not None}
 
     request_id = uuid.uuid4().hex
-    command = [
-        sys.executable,
-        str(SCRIPT_PATH),
-        "video",
-        "--prompt",
-        prompt.strip(),
-        "--request-id",
-        request_id,
-    ]
+    endpoint = f"{WAN_SERVICE_URL.rstrip('/')}/generate_video"
 
     try:
-        result = subprocess.run(command, capture_output=True, text=True, check=True)
-    except subprocess.CalledProcessError as exc:
-        raise RuntimeError(f"Video generation script failed: {exc.stderr or exc.stdout}") from exc
+        response = requests.post(endpoint, json=sanitized_payload, timeout=600)
+    except requests.RequestException as exc:  # pragma: no cover - network failure
+        raise RuntimeError(
+            "Failed to reach the WAN service. Ensure wan-service is running and accessible."
+        ) from exc
+
+    if response.status_code != 200:
+        raise RuntimeError(f"WAN service returned {response.status_code}: {response.text or response.reason}")
 
     try:
-        payload = json.loads(result.stdout.strip())
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("Video generation script returned invalid payload.") from exc
+        payload = response.json()
+    except ValueError as exc:
+        raise RuntimeError("WAN service returned invalid JSON response.") from exc
+
+    video_markdown = payload.get("video_markdown") or payload.get("markdown")
+    if not video_markdown:
+        raise RuntimeError("WAN service did not return a video payload.")
 
     return {
         "request_id": payload.get("request_id", request_id),
-        "video_path": payload.get("file_path"),
-        "video_url": payload.get("file_url"),
-        "video_markdown": payload.get("markdown"),
+        "video_markdown": video_markdown,
+        "video_base64": payload.get("video_base64") or payload.get("video"),
+        "video_url": payload.get("video_url"),
+        "video_filename": payload.get("video_filename"),
+        "model": payload.get("model"),
+        "provider": payload.get("provider"),
     }
 
 
