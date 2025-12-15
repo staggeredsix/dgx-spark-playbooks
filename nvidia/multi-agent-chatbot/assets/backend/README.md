@@ -25,6 +25,10 @@ The backend handles:
 - **Image analysis**: Multi-modal capabilities for image understanding
 - **Vector database**: Efficient similarity search for document retrieval
 - **Session management**: Chat history and context persistence
+- **Self-authored tooling**: The LLM can mint new MCP tools on the fly and
+  persist them under `self_tooling/` with guardrails against destructive
+  commands. The `self-tooling-server` MCP service exposes create/list/run APIs
+  so the assistant can safely add utilities like SSH setup helpers.
 
 ## Architecture
 
