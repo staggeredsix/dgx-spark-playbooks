@@ -16,7 +16,11 @@ RUN apt-get update && \
         ninja-build \
     && rm -rf /var/lib/apt/lists/*
 
-RUN git clone https://github.com/Wan-Video/Wan2.2.git ${WAN_CODE_DIR}
+COPY wan_remove_s2v.patch /tmp/wan_remove_s2v.patch
+
+RUN git clone https://github.com/Wan-Video/Wan2.2.git ${WAN_CODE_DIR} && \
+    cd ${WAN_CODE_DIR} && \
+    git apply /tmp/wan_remove_s2v.patch
 
 WORKDIR /app
 
@@ -32,7 +36,6 @@ RUN pip install --upgrade pip && \
         huggingface-hub \
         pydantic \
         pillow \
-        decord \
         imageio[ffmpeg] && \
     pip install --no-cache-dir --no-build-isolation --no-deps flash-attn
 

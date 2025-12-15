@@ -1,0 +1,203 @@
+diff --git a/generate.py b/generate.py
+index 3a5cbcd..f1478a9 100644
+--- a/generate.py
++++ b/generate.py
+@@ -42,20 +42,6 @@ EXAMPLE_PROMPT = {
+         "pose": "",
+         "mask": "",
+     },
+-    "s2v-14B": {
+-        "prompt":
+-            "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline's intricate details and the refreshing atmosphere of the seaside.",
+-        "image":
+-            "examples/i2v_input.JPG",
+-        "audio":
+-            "examples/talk.wav",
+-        "tts_prompt_audio":
+-            "examples/zero_shot_prompt.wav",
+-        "tts_prompt_text":
+-            "希望你以后能够做的比我还好呦。",
+-        "tts_text":
+-            "收到好友从远方寄来的生日礼物，那份意外的惊喜与深深的祝福让我心中充满了甜蜜的快乐，笑容如花儿般绽放。"
+-    },
+ }
+ 
+ 
+@@ -69,13 +55,6 @@ def _validate_args(args):
+         args.prompt = EXAMPLE_PROMPT[args.task]["prompt"]
+     if args.image is None and "image" in EXAMPLE_PROMPT[args.task]:
+         args.image = EXAMPLE_PROMPT[args.task]["image"]
+-    if args.audio is None and args.enable_tts is False and "audio" in EXAMPLE_PROMPT[args.task]:
+-        args.audio = EXAMPLE_PROMPT[args.task]["audio"]
+-    if (args.tts_prompt_audio is None or args.tts_text is None) and args.enable_tts is True and "audio" in EXAMPLE_PROMPT[args.task]:
+-        args.tts_prompt_audio = EXAMPLE_PROMPT[args.task]["tts_prompt_audio"]
+-        args.tts_prompt_text = EXAMPLE_PROMPT[args.task]["tts_prompt_text"]
+-        args.tts_text = EXAMPLE_PROMPT[args.task]["tts_text"]
+-
+     if args.task == "i2v-A14B":
+         assert args.image is not None, "Please specify the image path for i2v."
+ 
+@@ -96,10 +75,9 @@ def _validate_args(args):
+     args.base_seed = args.base_seed if args.base_seed >= 0 else random.randint(
+         0, sys.maxsize)
+     # Size check
+-    if not 's2v' in args.task:
+-        assert args.size in SUPPORTED_SIZES[
+-            args.
+-            task], f"Unsupport size {args.size} for task {args.task}, supported sizes are: {', '.join(SUPPORTED_SIZES[args.task])}"
++    assert args.size in SUPPORTED_SIZES[
++        args.
++        task], f"Unsupport size {args.size} for task {args.task}, supported sizes are: {', '.join(SUPPORTED_SIZES[args.task])}"
+ 
+ 
+ def _parse_args():
+@@ -244,55 +222,6 @@ def _parse_args():
+         action="store_true",
+         default=False,
+         help="Whether to use relighting lora.")
+-    
+-    # following args only works for s2v
+-    parser.add_argument(
+-        "--num_clip",
+-        type=int,
+-        default=None,
+-        help="Number of video clips to generate, the whole video will not exceed the length of audio."
+-    )
+-    parser.add_argument(
+-        "--audio",
+-        type=str,
+-        default=None,
+-        help="Path to the audio file, e.g. wav, mp3")
+-    parser.add_argument(
+-        "--enable_tts",
+-        action="store_true",
+-        default=False,
+-        help="Use CosyVoice to synthesis audio")
+-    parser.add_argument(
+-        "--tts_prompt_audio",
+-        type=str,
+-        default=None,
+-        help="Path to the tts prompt audio file, e.g. wav, mp3. Must be greater than 16khz, and between 5s to 15s.")
+-    parser.add_argument(
+-        "--tts_prompt_text",
+-        type=str,
+-        default=None,
+-        help="Content to the tts prompt audio. If provided, must exactly match tts_prompt_audio")
+-    parser.add_argument(
+-        "--tts_text",
+-        type=str,
+-        default=None,
+-        help="Text wish to synthesize")
+-    parser.add_argument(
+-        "--pose_video",
+-        type=str,
+-        default=None,
+-        help="Provide Dw-pose sequence to do Pose Driven")
+-    parser.add_argument(
+-        "--start_from_ref",
+-        action="store_true",
+-        default=False,
+-        help="whether set the reference image as the starting point for generation"
+-    )
+-    parser.add_argument(
+-        "--infer_frames",
+-        type=int,
+-        default=80,
+-        help="Number of frames per clip, 48 or 80 or others (must be multiple of 4) for 14B s2v"
+     )
+     args = parser.parse_args()
+     _validate_args(args)
+@@ -479,40 +408,6 @@ def generate(args):
+             guide_scale=args.sample_guide_scale,
+             seed=args.base_seed,
+             offload_model=args.offload_model)
+-    elif "s2v" in args.task:
+-        logging.info("Creating WanS2V pipeline.")
+-        wan_s2v = wan.WanS2V(
+-            config=cfg,
+-            checkpoint_dir=args.ckpt_dir,
+-            device_id=device,
+-            rank=rank,
+-            t5_fsdp=args.t5_fsdp,
+-            dit_fsdp=args.dit_fsdp,
+-            use_sp=(args.ulysses_size > 1),
+-            t5_cpu=args.t5_cpu,
+-            convert_model_dtype=args.convert_model_dtype,
+-        )
+-        logging.info(f"Generating video ...")
+-        video = wan_s2v.generate(
+-            input_prompt=args.prompt,
+-            ref_image_path=args.image,
+-            audio_path=args.audio,
+-            enable_tts=args.enable_tts,
+-            tts_prompt_audio=args.tts_prompt_audio,
+-            tts_prompt_text=args.tts_prompt_text,
+-            tts_text=args.tts_text,
+-            num_repeat=args.num_clip,
+-            pose_video=args.pose_video,
+-            max_area=MAX_AREA_CONFIGS[args.size],
+-            infer_frames=args.infer_frames,
+-            shift=args.sample_shift,
+-            sample_solver=args.sample_solver,
+-            sampling_steps=args.sample_steps,
+-            guide_scale=args.sample_guide_scale,
+-            seed=args.base_seed,
+-            offload_model=args.offload_model,
+-            init_first_frame=args.start_from_ref,
+-        )
+     else:
+         logging.info("Creating WanI2V pipeline.")
+         wan_i2v = wan.WanI2V(
+@@ -555,11 +450,6 @@ def generate(args):
+             nrow=1,
+             normalize=True,
+             value_range=(-1, 1))
+-        if "s2v" in args.task:
+-            if args.enable_tts is False:
+-                merge_video_audio(video_path=args.save_file, audio_path=args.audio)
+-            else:
+-                merge_video_audio(video_path=args.save_file, audio_path="tts.wav")
+     del video
+ 
+     torch.cuda.synchronize()
+diff --git a/wan/__init__.py b/wan/__init__.py
+index c49c77e..7d148f8 100644
+--- a/wan/__init__.py
++++ b/wan/__init__.py
+@@ -1,7 +1,6 @@
+ # Copyright 2024-2025 The Alibaba Wan Team Authors. All rights reserved.
+ from . import configs, distributed, modules
+ from .image2video import WanI2V
+-from .speech2video import WanS2V
+ from .text2video import WanT2V
+ from .textimage2video import WanTI2V
+ from .animate import WanAnimate
+\ No newline at end of file
+diff --git a/wan/configs/__init__.py b/wan/configs/__init__.py
+index 5a0ec3e..838ba3d 100644
+--- a/wan/configs/__init__.py
++++ b/wan/configs/__init__.py
+@@ -5,7 +5,6 @@ import os
+ os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+ 
+ from .wan_i2v_A14B import i2v_A14B
+-from .wan_s2v_14B import s2v_14B
+ from .wan_t2v_A14B import t2v_A14B
+ from .wan_ti2v_5B import ti2v_5B
+ from .wan_animate_14B import animate_14B
+@@ -15,7 +14,6 @@ WAN_CONFIGS = {
+     'i2v-A14B': i2v_A14B,
+     'ti2v-5B': ti2v_5B,
+     'animate-14B': animate_14B,
+-    's2v-14B': s2v_14B,
+ }
+ 
+ SIZE_CONFIGS = {
+@@ -44,7 +42,5 @@ SUPPORTED_SIZES = {
+     't2v-A14B': ('720*1280', '1280*720', '480*832', '832*480'),
+     'i2v-A14B': ('720*1280', '1280*720', '480*832', '832*480'),
+     'ti2v-5B': ('704*1280', '1280*704'),
+-    's2v-14B': ('720*1280', '1280*720', '480*832', '832*480', '1024*704',
+-                '704*1024', '704*1280', '1280*704'),
+     'animate-14B': ('720*1280', '1280*720')
+ }
