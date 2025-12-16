@@ -1142,7 +1142,7 @@ export default function QuerySection({
                       download={message.downloadName || "wan-video.mp4"}
                       className={styles.videoDownload}
                     >
-                      Download video
+                      Download
                     </a>
                   </div>
                 )}
