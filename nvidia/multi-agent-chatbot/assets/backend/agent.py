@@ -34,7 +34,7 @@ from logger import logger
 from prompts import Prompts
 from postgres_storage import PostgreSQLConversationStorage
 from utils import convert_langgraph_messages_to_openai
-from utils_media import merge_media_payloads, persist_data_uri_to_file
+from utils_media import ensure_data_uri, merge_media_payloads, persist_data_uri_to_file
 
 
 memory = MemorySaver()
@@ -314,7 +314,8 @@ class ChatAgent:
                         tool_result.setdefault("image_base64", raw_image)
 
                     if raw_image:
-                        stored_image_url = persist_data_uri_to_file(raw_image, "flux-image")
+                        normalized_image = ensure_data_uri(raw_image, fallback_mime="image/png") or raw_image
+                        stored_image_url = persist_data_uri_to_file(normalized_image, "flux-image")
                         if stored_image_url:
                             image_markdown = f"![Generated image]({stored_image_url})"
                             tool_result["image_markdown"] = image_markdown
@@ -345,7 +346,8 @@ class ChatAgent:
                     download_name = tool_result.get("video_filename", "wan-video.mp4")
 
                     if video_base64:
-                        stored_video_url = persist_data_uri_to_file(video_base64, "wan-video")
+                        normalized_video = ensure_data_uri(video_base64, fallback_mime="video/mp4") or video_base64
+                        stored_video_url = persist_data_uri_to_file(normalized_video, "wan-video")
                         if stored_video_url:
                             fallback_video_markdown = " ".join([
                                 f'<video controls src="{stored_video_url}">Your browser does not support the video tag.</video>',

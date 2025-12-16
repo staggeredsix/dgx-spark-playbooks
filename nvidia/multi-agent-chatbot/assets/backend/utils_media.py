@@ -32,6 +32,34 @@ DEFAULT_GENERATED_MEDIA_DIR = Path(
 GENERATED_MEDIA_PREFIX = "/generated-media"
 
 
+def ensure_data_uri(payload: str, fallback_mime: str = "image/png") -> Optional[str]:
+    """Normalize a base64 payload into a data URI if needed.
+
+    Args:
+        payload: Raw base64 string or an existing data URI.
+        fallback_mime: MIME type to use when constructing a data URI.
+
+    Returns:
+        A valid data URI string if the payload can be normalized, otherwise ``None``.
+    """
+
+    if not payload:
+        return None
+
+    compact = payload.strip()
+    if not compact:
+        return None
+
+    if compact.startswith("data:"):
+        return compact if ";base64," in compact else None
+
+    base64_candidate = re.sub(r"\s+", "", compact)
+    if re.fullmatch(r"[A-Za-z0-9+/]+={0,2}", base64_candidate):
+        return f"data:{fallback_mime};base64,{base64_candidate}"
+
+    return None
+
+
 def _to_data_uri(raw_bytes: bytes, mime_type: str) -> str:
     encoded = base64.b64encode(raw_bytes).decode("utf-8")
     return f"data:{mime_type};base64,{encoded}"
