@@ -30,7 +30,12 @@ def _determine_repo_root() -> Path:
         return Path(env_root)
 
     resolved_path = Path(__file__).resolve()
-    return resolved_path.parents[5] if len(resolved_path.parents) > 5 else resolved_path.parent
+    # Align with the backend server's repo discovery so media artifacts are
+    # written to the same tree that FastAPI serves statically. Using a shallower
+    # parent prevents us from accidentally jumping above the repository when
+    # the backend is copied into a flatter /app layout (e.g., inside a
+    # container).
+    return resolved_path.parents[4] if len(resolved_path.parents) > 4 else resolved_path.parent
 
 
 REPO_ROOT = _determine_repo_root()
