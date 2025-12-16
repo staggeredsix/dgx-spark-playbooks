@@ -487,7 +487,8 @@ class ChatAgent:
             state.pop("skip_llm_after_media", None)
             state.pop("media_final_content", None)
 
-        state["iterations"] = state.get("iterations", 0) + 1
+        new_iterations = state.get("iterations", 0) + 1
+        state["iterations"] = new_iterations
         
         logger.debug({
             "message": "GRAPH: EXITING NODE - action/tool_node",
@@ -499,7 +500,7 @@ class ChatAgent:
         await self.stream_callback({'type': 'node_end', 'data': 'tool_node'})
         return {
             "messages": messages + outputs,
-            "iterations": state.get("iterations", 0) + 1,
+            "iterations": new_iterations,
             "skip_llm_after_media": state.get("skip_llm_after_media"),
             "media_final_content": state.get("media_final_content"),
         }
@@ -531,14 +532,12 @@ class ChatAgent:
         })
         await self.stream_callback({'type': 'node_start', 'data': 'generate'})
 
+        external_media, media_debug = self._classify_media_items(
+            state.get("image_data"), chat_id=state.get("chat_id"), context="generate"
+        )
+
         supports_tools = bool(self.openai_tools)
         has_tools = supports_tools and len(self.openai_tools) > 0
-
-        external_media = [
-            item
-            for item in (state.get("image_data") or [])
-            if not self._is_internal_media_reference(item)
-        ]
         
         logger.debug({
             "message": "Tool calling debug info",
@@ -581,6 +580,7 @@ class ChatAgent:
             "api_base": self.api_base,
             "has_media": bool(external_media),
             "media_items": len(external_media),
+            "media_debug": media_debug,
             "tool_choice": tool_params.get("tool_choice", "auto"),
             "tool_count": len(tool_params.get("tools", []) or []),
         })
@@ -596,26 +596,6 @@ class ChatAgent:
 
         llm_output_buffer, tool_calls_buffer = await self._stream_response(stream, self.stream_callback)
         tool_calls = self._format_tool_calls(tool_calls_buffer)
-        if not tool_calls and external_media:
-            has_video_frames = any(
-                isinstance(item, dict) and "timestamp" in item
-                for item in external_media
-            )
-            forced_tool = "explain_video" if has_video_frames else "explain_image"
-            tool_calls = [
-                ToolCall(
-                    name=forced_tool,
-                    args={},
-                    id="auto_media_tool",
-                )
-            ]
-            logger.info(
-                {
-                    "message": "No tool calls returned; forcing media tool execution",
-                    "chat_id": state.get("chat_id"),
-                    "forced_tool": forced_tool,
-                }
-            )
 
         if not tool_calls:
             inferred_media_tool = self._detect_requested_media_tool(state.get("messages", []))
@@ -748,11 +728,134 @@ class ChatAgent:
             return True
 
         parsed = urlparse(media_url if "://" in media_url else f"http://{media_url}")
+        normalized_path = parsed.path or ""
+        normalized_path = normalized_path if normalized_path.startswith("/") else f"/{normalized_path}" if normalized_path else ""
+
+        internal_path_prefixes = {
+            GENERATED_MEDIA_PREFIX,
+            f"{GENERATED_MEDIA_PREFIX}/",
+            "/generated-media/",
+            "/generated/",
+            "/static/generated/",
+        }
+
+        for candidate in internal_path_prefixes:
+            if not candidate:
+                continue
+
+            normalized_candidate = candidate if candidate.startswith("/") else f"/{candidate.lstrip('/')}"
+            normalized_candidate = normalized_candidate.rstrip("/") + "/"
+
+            if normalized_path.startswith(normalized_candidate):
+                return True
+
         netloc = parsed.netloc
         if not netloc:
             return False
 
         return any(netloc == host or netloc.endswith(f".{host}") for host in self._internal_media_hosts)
+
+    def _classify_media_items(
+        self, media_items: List[str | dict] | None, *, chat_id: Optional[str] = None, context: str = ""
+    ) -> tuple[List[str | dict], Dict[str, Any]]:
+        normalized_items = list(media_items or [])
+
+        external_media: List[str | dict] = []
+        internal_media: List[str | dict] = []
+        ignored_empty: List[str | dict] = []
+        ignored_unsupported: List[str | dict] = []
+
+        external_examples: List[str] = []
+        internal_examples: List[str] = []
+        normalized_examples: List[str] = []
+
+        for item in normalized_items:
+            summary_value = None
+            if isinstance(item, str):
+                summary_value = item
+            elif isinstance(item, dict):
+                for key in ("url", "image_url", "video_url", "data", "image", "video"):
+                    value = item.get(key)
+                    if isinstance(value, str):
+                        summary_value = value
+                        break
+                    if isinstance(value, list):
+                        first_string = next((v for v in value if isinstance(v, str)), None)
+                        if first_string:
+                            summary_value = first_string
+                            break
+            if summary_value and len(normalized_examples) < 3:
+                normalized_examples.append(summary_value)
+
+            if item is None:
+                ignored_empty.append(item)
+                continue
+
+            if isinstance(item, str):
+                if not item.strip():
+                    ignored_empty.append(item)
+                    continue
+
+                if self._is_internal_media_reference(item):
+                    internal_media.append(item)
+                    if len(internal_examples) < 3:
+                        internal_examples.append(item)
+                    continue
+
+                external_media.append(item)
+                if len(external_examples) < 3:
+                    external_examples.append(item)
+                continue
+
+            if isinstance(item, dict):
+                url_candidates: List[str] = []
+                for key in ("url", "image_url", "video_url", "data", "image", "video"):
+                    value = item.get(key)
+                    if isinstance(value, str) and value.strip():
+                        url_candidates.append(value)
+                    elif isinstance(value, list):
+                        url_candidates.extend([v for v in value if isinstance(v, str) and v.strip()])
+
+                if not url_candidates:
+                    ignored_empty.append(item)
+                    continue
+
+                non_internal_candidates = [candidate for candidate in url_candidates if not self._is_internal_media_reference(candidate)]
+
+                if non_internal_candidates:
+                    external_media.append(item)
+                    if len(external_examples) < 3:
+                        external_examples.append(non_internal_candidates[0])
+                else:
+                    internal_media.append(item)
+                    if len(internal_examples) < 3:
+                        internal_examples.append(url_candidates[0])
+
+                continue
+
+            ignored_unsupported.append(item)
+
+        debug_payload: Dict[str, Any] = {
+            "context": context,
+            "normalized_count": len(normalized_items),
+            "external_count": len(external_media),
+            "internal_count": len(internal_media),
+            "ignored_empty": len(ignored_empty),
+            "ignored_unsupported": len(ignored_unsupported),
+            "external_examples": external_examples,
+            "internal_examples": internal_examples,
+            "normalized_examples": normalized_examples,
+        }
+
+        logger.info(
+            {
+                "message": "Media classification",
+                "chat_id": chat_id,
+                **debug_payload,
+            }
+        )
+
+        return external_media, debug_payload
 
     def _detect_requested_media_tool(self, messages: List[AnyMessage]) -> ToolCall | None:
         """Infer whether the user asked for media generation and force a tool call.
@@ -921,7 +1024,11 @@ class ChatAgent:
             
             base_system_prompt = self.system_prompt
             normalized_media = merge_media_payloads(image_data)
-            if normalized_media:
+            external_media, media_debug = self._classify_media_items(
+                normalized_media, chat_id=chat_id, context="query"
+            )
+
+            if external_media:
                 image_context = (
                     "\n\nMEDIA CONTEXT: The user included remote or uploaded media with their message. "
                     "You MUST call the explain_image tool for still images or URLs that end in an image file type. "
