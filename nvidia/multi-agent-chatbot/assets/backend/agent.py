@@ -35,7 +35,12 @@ from logger import logger
 from prompts import Prompts
 from postgres_storage import PostgreSQLConversationStorage
 from utils import convert_langgraph_messages_to_openai
-from utils_media import ensure_data_uri, merge_media_payloads, persist_data_uri_to_file
+from utils_media import (
+    ensure_data_uri,
+    merge_media_payloads,
+    persist_data_uri_to_file,
+    GENERATED_MEDIA_PREFIX,
+)
 
 
 memory = MemorySaver()
@@ -665,14 +670,26 @@ class ChatAgent:
 
     def _build_internal_media_hosts(self) -> set[str]:
         hosts: set[str] = set()
-        for env_var, default in [
-            ("FLUX_SERVICE_URL", "http://flux-service:8080"),
-            ("VIDEO_SERVICE_URL", "http://video-service:8081"),
-            ("WAN_SERVICE_URL", None),
-        ]:
-            host = self._normalize_service_host(os.getenv(env_var, default) if default or os.getenv(env_var) else None)
-            if host:
-                hosts.add(host)
+        service_defaults = {
+            "FLUX_SERVICE_URL": ["http://flux-service:8080"],
+            "VIDEO_SERVICE_URL": ["http://video-service:8081"],
+            # WAN defaults cover both the container service and local dev server
+            "WAN_SERVICE_URL": ["http://wan-service:8080", "http://localhost:8080"],
+        }
+
+        for env_var, defaults in service_defaults.items():
+            candidates = []
+
+            env_value = os.getenv(env_var)
+            if env_value:
+                candidates.append(env_value)
+            candidates.extend(defaults)
+
+            for candidate in candidates:
+                host = self._normalize_service_host(candidate)
+                if host:
+                    hosts.add(host)
+
         return hosts
 
     def _is_internal_media_reference(self, media_item: str | dict) -> bool:
@@ -690,7 +707,10 @@ class ChatAgent:
         if not media_url:
             return False
 
-        if media_url.startswith("data:video/"):
+        if media_url.startswith(GENERATED_MEDIA_PREFIX):
+            return True
+
+        if media_url.startswith("data:video/") or media_url.startswith("data:image/"):
             return True
 
         parsed = urlparse(media_url if "://" in media_url else f"http://{media_url}")
