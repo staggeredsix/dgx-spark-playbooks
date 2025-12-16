@@ -284,6 +284,7 @@ class ChatAgent:
         last_message = messages[-1]
         skip_followup_generation = False
         media_response_parts: list[str] = []
+        media_payload_for_model: Dict[str, Any] | None = None
 
         for i, tool_call in enumerate(last_message.tool_calls):
             logger.debug(f'Executing tool {i+1}/{len(last_message.tool_calls)}: {tool_call["name"]} with args: {tool_call["args"]}')
@@ -339,15 +340,11 @@ class ChatAgent:
 
                         media_response_parts.append(image_markdown)
                         skip_followup_generation = True
-
-                        payload_for_model = {
-                            k: v
-                            for k, v in tool_result.items()
-                            if k not in {"image_base64", "image"}
+                        media_payload_for_model = {
+                            "status": "media_generated",
+                            "type": "image",
+                            "image_url": image_url,
                         }
-                        if stored_image_url:
-                            payload_for_model.setdefault("image_url", stored_image_url)
-                            payload_for_model.setdefault("image_markdown", image_markdown)
 
                     video_markdown = tool_result.get("video_markdown")
                     video_base64 = tool_result.get("video_base64")
@@ -401,6 +398,23 @@ class ChatAgent:
 
                         media_response_parts.append(tool_result.get("video_markdown"))
                         skip_followup_generation = True
+                        media_payload_for_model = {
+                            "status": "media_generated",
+                            "type": "video",
+                            "video_url": stored_video_url,
+                            "filename": download_name,
+                        }
+
+                if skip_followup_generation and media_payload_for_model is not None:
+                    payload_for_model = media_payload_for_model
+                elif isinstance(payload_for_model, dict):
+                    payload_for_model = {
+                        k: v for k, v in payload_for_model.items() if k not in {"image_base64", "video_base64"}
+                    }
+                    for key in ["image", "video"]:
+                        value = payload_for_model.get(key)
+                        if isinstance(value, str) and value.startswith("data:"):
+                            payload_for_model.pop(key, None)
 
                 if "code" in tool_call["name"]:
                     content = str(tool_result)
