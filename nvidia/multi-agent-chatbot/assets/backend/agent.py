@@ -308,34 +308,43 @@ class ChatAgent:
                     image_markdown = tool_result.get("image_markdown")
                     stored_image_url = None
 
-                    if raw_image and not image_markdown:
-                        image_markdown = f"![Generated image]({raw_image})"
-                        tool_result["image_markdown"] = image_markdown
-                        tool_result.setdefault("image_base64", raw_image)
-
                     if raw_image:
                         normalized_image = ensure_data_uri(raw_image, fallback_mime="image/png") or raw_image
                         stored_image_url = persist_data_uri_to_file(normalized_image, "flux-image")
+
+                        # Prefer a file URL for both the UI and the stored payload so the
+                        # LLM never receives raw base64 blobs.
                         if stored_image_url:
-                            image_markdown = f"![Generated image]({stored_image_url})"
+                            image_markdown = image_markdown or f"![Generated image]({stored_image_url})"
                             tool_result["image_markdown"] = image_markdown
                             tool_result["image_url"] = stored_image_url
                             tool_result["image"] = stored_image_url
-                            tool_result.pop("image_base64", None)
+
+                        # Regardless of storage success, keep the model-facing payload free of
+                        # base64 to avoid accidental inference on raw image streams.
+                        tool_result.pop("image_base64", None)
+
+                    if not image_markdown and tool_result.get("image_url"):
+                        image_markdown = f"![Generated image]({tool_result['image_url']})"
+                        tool_result["image_markdown"] = image_markdown
 
                     if image_markdown:
                         image_url = stored_image_url or tool_result.get("image_url")
                         await self.stream_callback({
                             "type": "image",
                             "content": image_markdown,
-                            "raw": image_url or tool_result.get("image_base64"),
+                            "raw": image_url or raw_image,
                             "url": image_url,
                         })
 
                         media_response_parts.append(image_markdown)
                         skip_followup_generation = True
 
-                        payload_for_model = {k: v for k, v in tool_result.items() if k not in {"image_base64", "image"}}
+                        payload_for_model = {
+                            k: v
+                            for k, v in tool_result.items()
+                            if k not in {"image_base64", "image"}
+                        }
                         if stored_image_url:
                             payload_for_model.setdefault("image_url", stored_image_url)
                             payload_for_model.setdefault("image_markdown", image_markdown)
@@ -375,8 +384,11 @@ class ChatAgent:
                                     updated_video_markdown = fallback_video_markdown
 
                             tool_result["video_markdown"] = updated_video_markdown
-                            tool_result.pop("video_base64", None)
                             video_markdown = updated_video_markdown
+
+                        # Strip base64 so the model never receives raw video blobs even if
+                        # persistence fails.
+                        tool_result.pop("video_base64", None)
 
                     if tool_result.get("video_markdown"):
                         await self.stream_callback({
