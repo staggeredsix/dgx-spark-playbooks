@@ -39,6 +39,7 @@ from utils_media import (
     ensure_data_uri,
     merge_media_payloads,
     persist_data_uri_to_file,
+    persist_url_to_file,
     GENERATED_MEDIA_PREFIX,
 )
 
@@ -316,6 +317,7 @@ class ChatAgent:
                     raw_image = tool_result.get("image_base64") or tool_result.get("image")
                     image_markdown = tool_result.get("image_markdown")
                     stored_image_url = None
+                    fallback_image_url = None
 
                     if raw_image:
                         normalized_image = ensure_data_uri(raw_image, fallback_mime="image/png") or raw_image
@@ -332,6 +334,16 @@ class ChatAgent:
                         # Regardless of storage success, keep the model-facing payload free of
                         # base64 to avoid accidental inference on raw image streams.
                         tool_result.pop("image_base64", None)
+
+                    if not stored_image_url:
+                        raw_url_candidate = tool_result.get("image_url") or tool_result.get("image")
+                        if isinstance(raw_url_candidate, str):
+                            fallback_image_url = persist_url_to_file(raw_url_candidate, "flux-image")
+
+                        if fallback_image_url:
+                            stored_image_url = fallback_image_url
+                            tool_result["image_url"] = stored_image_url
+                            tool_result["image"] = stored_image_url
 
                     if not image_markdown and tool_result.get("image_url"):
                         image_markdown = f"![Generated image]({tool_result['image_url']})"

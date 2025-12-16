@@ -110,6 +110,45 @@ def persist_data_uri_to_file(
     return f"{GENERATED_MEDIA_PREFIX}/{path.name}"
 
 
+def persist_url_to_file(url: str, prefix: str, media_root: Path = DEFAULT_GENERATED_MEDIA_DIR) -> Optional[str]:
+    """Download a remote media URL and persist it locally.
+
+    Args:
+        url: Remote URL to download.
+        prefix: Filename prefix used when storing the content.
+        media_root: Directory where the media file should be stored.
+
+    Returns:
+        URL path (relative to the API host) for the stored media, or ``None`` if
+        the content could not be fetched or persisted.
+    """
+
+    if not url:
+        return None
+
+    try:
+        response = _download_url(url)
+    except Exception:
+        return None
+
+    content_type = (response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+    if not (content_type.startswith("image/") or content_type.startswith("video/")):
+        guessed_type, _ = mimetypes.guess_type(url)
+        content_type = guessed_type or content_type
+
+    extension = mimetypes.guess_extension(content_type or "") or (".mp4" if url.lower().endswith(".mp4") else ".png")
+
+    try:
+        media_root.mkdir(parents=True, exist_ok=True)
+        filename = f"{prefix}-{uuid.uuid4().hex}{extension}"
+        path = media_root / filename
+        path.write_bytes(response.content)
+    except Exception:
+        return None
+
+    return f"{GENERATED_MEDIA_PREFIX}/{path.name}"
+
+
 def _download_url(url: str) -> requests.Response:
     response = requests.get(url, timeout=15, stream=True)
     response.raise_for_status()
