@@ -331,9 +331,8 @@ class ChatAgent:
                             "url": image_url,
                         })
 
-                        if tool_call["name"] == "generate_image":
-                            media_response_parts.append(image_markdown)
-                            skip_followup_generation = True
+                        media_response_parts.append(image_markdown)
+                        skip_followup_generation = True
 
                         payload_for_model = {k: v for k, v in tool_result.items() if k not in {"image_base64", "image"}}
                         if stored_image_url:
@@ -386,9 +385,8 @@ class ChatAgent:
                             "filename": download_name,
                         })
 
-                        if tool_call["name"] == "generate_video":
-                            media_response_parts.append(tool_result.get("video_markdown"))
-                            skip_followup_generation = True
+                        media_response_parts.append(tool_result.get("video_markdown"))
+                        skip_followup_generation = True
 
                 if "code" in tool_call["name"]:
                     content = str(tool_result)
