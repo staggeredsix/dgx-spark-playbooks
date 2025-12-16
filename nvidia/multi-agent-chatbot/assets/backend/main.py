@@ -26,8 +26,11 @@ This module provides the main HTTP API endpoints and WebSocket connections for:
 
 import asyncio
 import contextlib
+import datetime
 import json
 import os
+import shutil
+import subprocess
 import uuid
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -37,6 +40,7 @@ from fastapi import FastAPI, File, Form, UploadFile, HTTPException, BackgroundTa
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from huggingface_hub import snapshot_download
+import psutil
 
 from agent import ChatAgent
 from config import ConfigManager
@@ -199,6 +203,82 @@ app.mount(
 )
 
 
+def _bytes_to_gb(value: float) -> float:
+    """Convert a byte value to gigabytes with two decimal precision."""
+
+    return round(value / (1024 ** 3), 2)
+
+
+def _collect_gpu_metrics() -> list[dict[str, float | str]]:
+    """Collect GPU utilization and memory metrics using ``nvidia-smi``.
+
+    Returns an empty list if ``nvidia-smi`` is unavailable or fails.
+    """
+
+    if not shutil.which("nvidia-smi"):
+        return []
+
+    try:
+        output = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=uuid,name,utilization.gpu,memory.used,memory.total",
+                "--format=csv,noheader,nounits",
+            ],
+            text=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        logger.warning("Unable to collect GPU metrics via nvidia-smi", exc_info=True)
+        return []
+
+    gpu_metrics: list[dict[str, float | str]] = []
+
+    for line in output.strip().splitlines():
+        parts = [part.strip() for part in line.split(",")]
+
+        if len(parts) < 5:
+            continue
+
+        try:
+            gpu_uuid, name, utilization, memory_used, memory_total = parts[:5]
+            total_memory_mib = float(memory_total)
+            used_memory_mib = float(memory_used)
+            memory_utilization = (used_memory_mib / total_memory_mib) * 100 if total_memory_mib else 0.0
+
+            gpu_metrics.append(
+                {
+                    "id": gpu_uuid,
+                    "name": name,
+                    "utilization": float(utilization),
+                    "memory_used_gb": round(used_memory_mib / 1024, 2),
+                    "memory_total_gb": round(total_memory_mib / 1024, 2),
+                    "memory_utilization": round(memory_utilization, 2),
+                }
+            )
+        except ValueError:
+            continue
+
+    return gpu_metrics
+
+
+def _collect_system_resources() -> dict:
+    """Gather CPU, DRAM, and GPU metrics for the system."""
+
+    memory_stats = psutil.virtual_memory()
+    used_memory = memory_stats.total - memory_stats.available
+
+    return {
+        "cpu": {"percent": round(psutil.cpu_percent(interval=0.1), 2)},
+        "memory": {
+            "total_gb": _bytes_to_gb(memory_stats.total),
+            "used_gb": _bytes_to_gb(used_memory),
+            "percent": round(memory_stats.percent, 2),
+        },
+        "gpus": _collect_gpu_metrics(),
+        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+    }
+
+
 @app.get("/warmup/status")
 async def get_warmup_status():
     """Return the current warmup status and logs."""
@@ -211,6 +291,17 @@ async def trigger_warmup():
     """Start the warmup suite if it is not already running."""
 
     return await warmup_manager.start_suite()
+
+
+@app.get("/system_resources")
+async def get_system_resources():
+    """Expose CPU, DRAM, and GPU metrics for the frontend resource monitor."""
+
+    try:
+        return _collect_system_resources()
+    except Exception:
+        logger.error("Error collecting system resource metrics", exc_info=True)
+        raise HTTPException(status_code=500, detail="Unable to collect system resource metrics")
 
 
 @app.websocket("/ws/chat/{chat_id}")

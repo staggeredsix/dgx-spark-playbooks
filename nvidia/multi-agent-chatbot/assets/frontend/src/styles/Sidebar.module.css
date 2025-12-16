@@ -906,6 +906,162 @@ input:checked + .toggleSlider:before {
   background-color: rgba(255, 255, 255, 0.03);
 }
 
+
+.resourceSection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.resourceGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.resourceCard {
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+:global(.dark) .resourceCard {
+  background: #0f172a;
+  border-color: #1f2937;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.resourceTitle {
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 6px;
+}
+
+:global(.dark) .resourceTitle {
+  color: #e5e7eb;
+}
+
+.metricRow {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.metricLabel {
+  font-weight: 600;
+  color: #4b5563;
+}
+
+:global(.dark) .metricLabel {
+  color: #d1d5db;
+}
+
+.metricValue {
+  font-weight: 700;
+  color: #111827;
+}
+
+:global(.dark) .metricValue {
+  color: #e5e7eb;
+}
+
+.metricSubtext {
+  color: #4b5563;
+  font-size: 0.9rem;
+  margin-top: 4px;
+}
+
+:global(.dark) .metricSubtext {
+  color: #d1d5db;
+}
+
+.metricMuted {
+  color: #6b7280;
+  font-size: 0.95rem;
+}
+
+:global(.dark) .metricMuted {
+  color: #9ca3af;
+}
+
+.progressBar {
+  width: 100%;
+  height: 8px;
+  background: #e5e7eb;
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+:global(.dark) .progressBar {
+  background: #1f2937;
+}
+
+.progressFill {
+  height: 100%;
+  background: linear-gradient(90deg, #22c55e, #0ea5e9);
+}
+
+.gpuList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.gpuCard {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px;
+  background: white;
+}
+
+:global(.dark) .gpuCard {
+  background: #0b1220;
+  border-color: #1f2937;
+}
+
+.gpuHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.gpuName {
+  font-weight: 700;
+  color: #111827;
+}
+
+:global(.dark) .gpuName {
+  color: #e5e7eb;
+}
+
+.gpuId {
+  color: #6b7280;
+  font-size: 0.85rem;
+  word-break: break-word;
+}
+
+:global(.dark) .gpuId {
+  color: #9ca3af;
+}
+
+.metricTimestamp {
+  color: #6b7280;
+  font-size: 0.85rem;
+}
+
+:global(.dark) .metricTimestamp {
+  color: #9ca3af;
+}
+
+.errorText {
+  color: #dc2626;
+  font-weight: 700;
+}
+
 :global(.dark) .chatList::before {
   background: rgba(118, 185, 0, 0.15);
   border-color: rgba(118, 185, 0, 0.3);
