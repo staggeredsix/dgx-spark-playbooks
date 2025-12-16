@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 from mcp.server.fastmcp import FastMCP
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from tools.self_tooling_manager import SelfToolingManager  # noqa: E402
@@ -36,15 +36,27 @@ class ToolSpec(BaseModel):
 
 
 @mcp.tool()
-async def create_tool(spec: ToolSpec):
+async def create_tool(spec: Dict[str, object]):
     """Create or update a self-authored tool after safety validation."""
 
+    try:
+        validated = ToolSpec.model_validate(spec)
+    except ValidationError as exc:
+        return {
+            "ok": False,
+            "tool": "create_tool",
+            "error_type": "validation_error",
+            "message": "Invalid tool specification",
+            "detail": exc.errors(),
+        }
+
     tool = manager.save_tool(
-        name=spec.name,
-        description=spec.description,
-        commands=[c.args for c in spec.commands],
+        name=validated.name,
+        description=validated.description,
+        commands=[c.args for c in validated.commands],
     )
     return {
+        "ok": True,
         "name": tool.name,
         "description": tool.description,
         "commands": tool.commands,
@@ -56,7 +68,7 @@ async def create_tool(spec: ToolSpec):
 async def list_self_tools():
     """List all locally persisted self-authored tools."""
 
-    return manager.list_tools()
+    return {"ok": True, "tool": "list_self_tools", "tools": manager.list_tools()}
 
 
 @mcp.tool()
