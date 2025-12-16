@@ -32,6 +32,17 @@ DEFAULT_GENERATED_MEDIA_DIR = Path(
 GENERATED_MEDIA_PREFIX = "/generated-media"
 
 
+def _build_generated_media_url(filename: str) -> str:
+    prefix = GENERATED_MEDIA_PREFIX
+
+    if prefix.endswith("//"):
+        return f"{prefix}{filename}"
+
+    normalized_prefix = prefix.rstrip("/")
+
+    return f"{normalized_prefix}/" + filename
+
+
 def ensure_data_uri(payload: str, fallback_mime: str = "image/png") -> Optional[str]:
     """Normalize a base64 payload into a data URI if needed.
 
@@ -107,7 +118,7 @@ def persist_data_uri_to_file(
     except Exception:
         return None
 
-    return f"{GENERATED_MEDIA_PREFIX}/{path.name}"
+    return _build_generated_media_url(path.name)
 
 
 def persist_url_to_file(url: str, prefix: str, media_root: Path = DEFAULT_GENERATED_MEDIA_DIR) -> Optional[str]:
@@ -146,7 +157,7 @@ def persist_url_to_file(url: str, prefix: str, media_root: Path = DEFAULT_GENERA
     except Exception:
         return None
 
-    return f"{GENERATED_MEDIA_PREFIX}/{path.name}"
+    return _build_generated_media_url(path.name)
 
 
 def _download_url(url: str) -> requests.Response:
