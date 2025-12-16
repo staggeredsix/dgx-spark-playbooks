@@ -118,6 +118,14 @@ function resolveMediaSrc(raw: string | undefined | null): string | null {
 
   if (trimmed.startsWith("/")) return buildBackendUrl(trimmed);
 
+  const fileNameMatch = trimmed.match(/^[\w-]+\.(png|jpe?g|gif|webp|mp4)$/i);
+  if (fileNameMatch) {
+    const [, extension] = fileNameMatch;
+    const isImage = extension.toLowerCase() !== "mp4";
+    const basePath = isImage ? "/image_generation_output" : "/video_generation_output";
+    return buildBackendUrl(`${basePath}/${trimmed}`);
+  }
+
   return null;
 }
 
