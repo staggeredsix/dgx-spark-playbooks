@@ -14,7 +14,7 @@ from uuid import uuid4
 
 import torch
 from diffusers import FluxPipeline
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from PIL import Image
@@ -143,7 +143,7 @@ def healthcheck():
 
 
 @app.post("/generate_image")
-async def generate_image(request: GenerateImageRequest):
+async def generate_image(http_request: Request, request: GenerateImageRequest):
     token_override = request.hf_api_key or HF_TOKEN
     try:
         pipeline = _ensure_pipeline(token_override)
@@ -202,7 +202,7 @@ async def generate_image(request: GenerateImageRequest):
         logger.exception("Failed to save generated image")
         raise HTTPException(status_code=500, detail=f"Failed to save generated image: {exc}")
 
-    image_url = f"http://flux-service:8080/images/{filename}"
+    image_url = str(http_request.url_for("get_image", name=filename))
     response = _encode_image(image)
     response.update(
         {
