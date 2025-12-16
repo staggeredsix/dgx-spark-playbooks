@@ -17,6 +17,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { backendFetch } from '@/utils/backend';
 import styles from '@/styles/Sidebar.module.css';
+import SystemResourceMonitor from './SystemResourceMonitor';
 
 interface Model {
   id: string;
@@ -60,7 +61,7 @@ export default function Sidebar({
 }: SidebarProps) {
   const [isVisible, setIsVisible] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(["config", "history"]));
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(["resources", "history"]));
   const [isLoading, setIsLoading] = useState(false);
   const [availableSources, setAvailableSources] = useState<string[]>([]);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
@@ -754,10 +755,24 @@ export default function Sidebar({
               </button>
             </div>
 
+            {/* System Resources */}
+            <div className={styles.sidebarSection}>
+              <div
+                className={styles.sectionHeader}
+                onClick={() => toggleSection('resources')}
+              >
+                <h3>System resources</h3>
+                <span className={isSectionExpanded('resources') ? styles.arrowUp : styles.arrowDown}>▼</span>
+              </div>
+              <div className={`${styles.sectionContent} ${isSectionExpanded('resources') ? styles.expanded : ''}`}>
+                <SystemResourceMonitor />
+              </div>
+            </div>
+
             {/* Model Selection */}
             <div className={styles.sidebarSection}>
-              <div 
-                className={styles.sectionHeader} 
+              <div
+                className={styles.sectionHeader}
                 onClick={() => toggleSection('model')}
               >
                 <h3>Model</h3>
