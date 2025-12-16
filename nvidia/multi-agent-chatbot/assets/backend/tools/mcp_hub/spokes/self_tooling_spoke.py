@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def register_tools(hub, _config):
-    async def create_tool(spec: self_tooling.ToolSpec) -> Dict[str, object]:
+    async def create_tool(spec: Dict[str, object]) -> Dict[str, object]:
         try:
             return await self_tooling.create_tool(spec)
         except Exception as exc:  # pragma: no cover - filesystem validation guard
