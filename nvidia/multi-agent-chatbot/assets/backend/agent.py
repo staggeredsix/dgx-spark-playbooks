@@ -749,6 +749,9 @@ class ChatAgent:
             if normalized_path.startswith(normalized_candidate):
                 return True
 
+        if re.fullmatch(r"/images/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png", normalized_path):
+            return True
+
         netloc = parsed.netloc
         if not netloc:
             return False
