@@ -22,6 +22,7 @@ import json
 import os
 import re
 from typing import AsyncIterator, List, Dict, Any, TypedDict, Optional, Callable, Awaitable
+from urllib.parse import urlparse
 
 from langchain_core.messages import HumanMessage, AIMessage, AnyMessage, SystemMessage, ToolMessage, ToolCall
 from langchain_core.utils.function_calling import convert_to_openai_tool
@@ -82,7 +83,9 @@ class ChatAgent:
         self.openai_tools = None
         self.tools_by_name = None
         self.system_prompt = None
-        
+
+        self._internal_media_hosts = self._build_internal_media_hosts()
+
         self.graph = self._build_graph()
         self.stream_callback = None
         self.last_state = None
@@ -491,6 +494,12 @@ class ChatAgent:
 
         supports_tools = bool(self.openai_tools)
         has_tools = supports_tools and len(self.openai_tools) > 0
+
+        external_media = [
+            item
+            for item in (state.get("image_data") or [])
+            if not self._is_internal_media_reference(item)
+        ]
         
         logger.debug({
             "message": "Tool calling debug info",
@@ -501,7 +510,7 @@ class ChatAgent:
             "openai_tools": self.openai_tools,
             "has_tools": has_tools
         })
-        
+
         tool_params = {}
         if has_tools:
             tool_params = {
@@ -509,10 +518,10 @@ class ChatAgent:
                 "tool_choice": "auto"
             }
 
-            if state.get("image_data") and not state.get("process_image_used"):
+            if external_media and not state.get("process_image_used"):
                 has_video_frames = any(
                     isinstance(item, dict) and "timestamp" in item
-                    for item in state.get("image_data", [])
+                    for item in external_media
                 )
                 forced_tool = "explain_video" if has_video_frames else "explain_image"
 
@@ -531,8 +540,8 @@ class ChatAgent:
             "chat_id": state.get("chat_id"),
             "model": self.current_model,
             "api_base": self.api_base,
-            "has_media": bool(state.get("image_data")),
-            "media_items": len(state.get("image_data", []) or []),
+            "has_media": bool(external_media),
+            "media_items": len(external_media),
             "tool_choice": tool_params.get("tool_choice", "auto"),
             "tool_count": len(tool_params.get("tools", []) or []),
         })
@@ -548,10 +557,10 @@ class ChatAgent:
 
         llm_output_buffer, tool_calls_buffer = await self._stream_response(stream, self.stream_callback)
         tool_calls = self._format_tool_calls(tool_calls_buffer)
-        if not tool_calls and state.get("image_data"):
+        if not tool_calls and external_media:
             has_video_frames = any(
                 isinstance(item, dict) and "timestamp" in item
-                for item in state.get("image_data", [])
+                for item in external_media
             )
             forced_tool = "explain_video" if has_video_frames else "explain_image"
             tool_calls = [
@@ -644,6 +653,52 @@ class ChatAgent:
         workflow.add_edge("action", "generate")
 
         return workflow.compile(checkpointer=memory)
+
+    @staticmethod
+    def _normalize_service_host(url: str | None) -> Optional[str]:
+        if not url:
+            return None
+
+        normalized = url if "://" in url else f"http://{url}"
+        parsed = urlparse(normalized)
+        return parsed.netloc or None
+
+    def _build_internal_media_hosts(self) -> set[str]:
+        hosts: set[str] = set()
+        for env_var, default in [
+            ("FLUX_SERVICE_URL", "http://flux-service:8080"),
+            ("VIDEO_SERVICE_URL", "http://video-service:8081"),
+            ("WAN_SERVICE_URL", None),
+        ]:
+            host = self._normalize_service_host(os.getenv(env_var, default) if default or os.getenv(env_var) else None)
+            if host:
+                hosts.add(host)
+        return hosts
+
+    def _is_internal_media_reference(self, media_item: str | dict) -> bool:
+        media_url: Optional[str] = None
+
+        if isinstance(media_item, dict):
+            for key in ("url", "image_url", "video_url", "data"):
+                value = media_item.get(key)
+                if isinstance(value, str):
+                    media_url = value
+                    break
+        elif isinstance(media_item, str):
+            media_url = media_item
+
+        if not media_url:
+            return False
+
+        if media_url.startswith("data:video/"):
+            return True
+
+        parsed = urlparse(media_url if "://" in media_url else f"http://{media_url}")
+        netloc = parsed.netloc
+        if not netloc:
+            return False
+
+        return any(netloc == host or netloc.endswith(f".{host}") for host in self._internal_media_hosts)
 
     def _detect_requested_media_tool(self, messages: List[AnyMessage]) -> ToolCall | None:
         """Infer whether the user asked for media generation and force a tool call.
