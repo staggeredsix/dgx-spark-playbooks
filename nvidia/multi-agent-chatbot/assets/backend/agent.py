@@ -294,7 +294,7 @@ class ChatAgent:
         messages = state.get("messages", [])
         last_message = messages[-1]
         skip_followup_generation = False
-        media_response_parts: list[str] = []
+        media_final_messages: list[str] = []
         media_payload_for_model: Dict[str, Any] | None = None
         chat_id = state.get("chat_id")
 
@@ -421,13 +421,13 @@ class ChatAgent:
                             "url": stored_image_url,
                         })
 
-                        media_response_parts.append(image_markdown)
                         skip_followup_generation = True
                         media_payload_for_model = {
                             "status": "media_generated",
                             "type": "image",
                             "image_url": stored_image_url,
                         }
+                        media_final_messages.append("Generated image.")
 
                     video_markdown = tool_result.get("video_markdown")
                     video_base64 = tool_result.get("video_base64")
@@ -523,7 +523,6 @@ class ChatAgent:
                             "filename": download_name,
                         })
 
-                        media_response_parts.append(tool_result.get("video_markdown"))
                         skip_followup_generation = True
                         media_payload_for_model = {
                             "status": "media_generated",
@@ -531,6 +530,7 @@ class ChatAgent:
                             "video_url": video_url_for_ui,
                             "filename": download_name,
                         }
+                        media_final_messages.append("Generated video.")
 
                 if skip_followup_generation and media_payload_for_model is not None:
                     payload_for_model = media_payload_for_model
@@ -568,9 +568,9 @@ class ChatAgent:
                 )
             )
 
-        if skip_followup_generation and media_response_parts:
+        if skip_followup_generation:
             state["skip_llm_after_media"] = True
-            state["media_final_content"] = "\n\n".join(media_response_parts)
+            state["media_final_content"] = "\n\n".join(media_final_messages) or "Generated media."
         else:
             state.pop("skip_llm_after_media", None)
             state.pop("media_final_content", None)
