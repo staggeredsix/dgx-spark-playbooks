@@ -41,12 +41,11 @@ RUN pip install --upgrade pip && \
         pillow \
         numpy \
         fastapi \
-        uvicorn[standard] \
+        "uvicorn[standard]" \
         huggingface-hub \
         pydantic \
-        imageio[ffmpeg] && \
-    pip install --no-cache-dir --no-build-isolation --no-deps flash-attn && \
-    python -c "import transformers, accelerate, peft, safetensors; print('deps ok', transformers.__version__)"
+        "imageio[ffmpeg]" && \
+    pip install --no-cache-dir --no-build-isolation --no-deps flash-attn
 
 RUN python - <<'PY'
 import os
