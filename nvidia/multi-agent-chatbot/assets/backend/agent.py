@@ -36,6 +36,8 @@ from prompts import Prompts
 from postgres_storage import PostgreSQLConversationStorage
 from utils import convert_langgraph_messages_to_openai
 from utils_media import (
+    build_generated_media_reference,
+    build_media_descriptor,
     ensure_data_uri,
     merge_media_payloads,
     persist_data_uri_to_file,
@@ -299,8 +301,12 @@ class ChatAgent:
         for i, tool_call in enumerate(last_message.tool_calls):
             logger.debug(f'Executing tool {i+1}/{len(last_message.tool_calls)}: {tool_call["name"]} with args: {tool_call["args"]}')
             await self.stream_callback({'type': 'tool_start', 'data': tool_call["name"]})
-            
+
             try:
+                tool_origin = (
+                    "flux-service" if tool_call["name"] == "generate_image" else "video-service"
+                    if tool_call["name"] == "generate_video" else "unknown"
+                )
                 if tool_call["name"] in {"explain_image", "explain_video"}:
                     tool_args = tool_call["args"].copy()
                     media_key = "image" if tool_call["name"] == "explain_image" else "video_frames"
@@ -340,6 +346,7 @@ class ChatAgent:
                 payload_for_model = tool_result
 
                 if isinstance(tool_result, dict):
+                    media_descriptors = list(tool_result.get("media") or [])
                     raw_image = tool_result.get("image_base64") or tool_result.get("image")
                     image_markdown = tool_result.get("image_markdown")
                     stored_image_url = None
@@ -376,6 +383,18 @@ class ChatAgent:
                     if proxied_image_url:
                         tool_result["image_url"] = proxied_image_url
                         tool_result["image"] = proxied_image_url
+
+                    if stored_image_url and not any(item.get("kind") == "image" for item in media_descriptors):
+                        media_descriptors.append(
+                            build_media_descriptor(
+                                kind="image",
+                                origin=tool_origin,
+                                media_ref=build_generated_media_reference(
+                                    stored_image_url, tool_origin, "image"
+                                ),
+                                mime_type="image/png",
+                            )
+                        )
 
                     image_markdown = self._rewrite_media_content(image_markdown, original_image_url)
 
@@ -451,6 +470,18 @@ class ChatAgent:
                     if video_markdown:
                         tool_result["video_markdown"] = video_markdown
 
+                    if stored_video_url and not any(item.get("kind") == "video" for item in media_descriptors):
+                        media_descriptors.append(
+                            build_media_descriptor(
+                                kind="video",
+                                origin=tool_origin,
+                                media_ref=build_generated_media_reference(
+                                    stored_video_url, tool_origin, "video"
+                                ),
+                                mime_type="video/mp4",
+                            )
+                        )
+
                     if tool_result.get("video_markdown"):
                         video_url_for_ui = tool_result.get("video_url") or stored_video_url
                         await self.stream_callback({
@@ -473,6 +504,8 @@ class ChatAgent:
                 if skip_followup_generation and media_payload_for_model is not None:
                     payload_for_model = media_payload_for_model
                 elif isinstance(payload_for_model, dict):
+                    if media_descriptors:
+                        payload_for_model["media"] = media_descriptors
                     payload_for_model = {
                         k: v for k, v in payload_for_model.items() if k not in {"image_base64", "video_base64"}
                     }
@@ -486,9 +519,10 @@ class ChatAgent:
                 elif isinstance(tool_result, str):
                     content = tool_result
                 else:
-                    content = json.dumps(payload_for_model)
+                    content = payload_for_model
                 if content:
-                    await self.stream_callback({"type": "tool_token", "data": content})
+                    streamed = content if isinstance(content, str) else json.dumps(content)
+                    await self.stream_callback({"type": "tool_token", "data": streamed})
             except Exception as e:
                 logger.error(f'Error executing tool {tool_call["name"]}: {str(e)}', exc_info=True)
                 content = f"Error executing tool '{tool_call['name']}': {str(e)}"
