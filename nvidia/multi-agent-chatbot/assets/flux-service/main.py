@@ -28,6 +28,7 @@ FLUX_MODEL_DIR = os.environ.get("FLUX_MODEL_DIR")
 FLUX_MODEL_SUBDIR = os.environ.get("FLUX_MODEL_SUBDIR")
 HF_TOKEN = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACEHUB_API_TOKEN")
 FLUX_OUTPUT_DIR = Path(os.environ.get("FLUX_OUTPUT_DIR", "/outputs")).resolve()
+FLUX_RETURN_BASE64 = os.environ.get("FLUX_RETURN_BASE64", "false").lower() == "true"
 
 app = FastAPI(title="FLUX Image Service", version="1.0")
 
@@ -61,6 +62,9 @@ _output_dir.mkdir(parents=True, exist_ok=True)
 
 
 def _encode_image(image: Image.Image | bytes) -> dict:
+    if not FLUX_RETURN_BASE64:
+        return {}
+
     if isinstance(image, (bytes, bytearray)):
         image_bytes = bytes(image)
     else:
@@ -202,22 +206,22 @@ async def generate_image(http_request: Request, request: GenerateImageRequest):
         logger.exception("Failed to save generated image")
         raise HTTPException(status_code=500, detail=f"Failed to save generated image: {exc}")
 
-    image_url = str(http_request.url_for("get_image", name=filename))
+    image_path = f"/images/{filename}"
     response = _encode_image(image)
     response.update(
         {
             "prompt": request.prompt,
             "model": _model_id,
             "provider": _provider,
-            "image_url": image_url,
+            "image_url": image_path,
             "seed": int(used_seed),
         }
     )
 
     # Prefer the persisted PNG URL for downstream consumers so the frontend can
     # render the saved file instead of an inlined base64 payload.
-    response["image_markdown"] = f"![FLUX generated image]({image_url})"
-    response["image"] = image_url
+    response["image_markdown"] = f"![FLUX generated image]({image_path})"
+    response["image"] = image_path
     return response
 
 

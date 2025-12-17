@@ -19,8 +19,9 @@ import uuid
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Tuple
 
-import requests
+import httpx
 from fastapi import UploadFile
+from urllib.parse import urlparse
 
 MAX_DOWNLOAD_SIZE = 20 * 1024 * 1024  # 20 MB safeguard
 MAX_UPLOAD_SIZE = MAX_DOWNLOAD_SIZE
@@ -52,6 +53,9 @@ INTERNAL_GENERATED_PATH_PREFIXES = (
     "/image_generation_output/",
     "/video_generation_output/",
 )
+
+FLUX_SERVICE_URL = os.getenv("FLUX_SERVICE_URL", "http://flux-service:8080")
+WAN_SERVICE_URL = os.getenv("WAN_SERVICE_URL", "http://wan-service:8080")
 
 
 def build_media_descriptor(
@@ -103,7 +107,12 @@ def _resolve_extension(mime_type: str | None, kind: str) -> str:
         if guessed:
             return guessed
 
-    return ".png" if kind == "image" else ".mp4"
+    if kind == "image":
+        return ".png"
+    if kind == "video":
+        return ".mp4"
+
+    return ".bin"
 
 
 def _build_generated_media_url(filename: str) -> str:
@@ -258,7 +267,58 @@ def persist_data_uri_to_file(
     return generated_url
 
 
-def persist_generated_media(
+def _resolve_remote_url(remote_url: str | None) -> str | None:
+    if not remote_url:
+        return None
+
+    parsed = urlparse(remote_url)
+    if parsed.scheme in {"http", "https"}:
+        return remote_url
+
+    normalized_path = remote_url if str(remote_url).startswith("/") else f"/{remote_url}"
+    if normalized_path.startswith("/images"):
+        base = FLUX_SERVICE_URL
+    elif normalized_path.startswith("/videos") or normalized_path.startswith("/video"):
+        base = WAN_SERVICE_URL
+    else:
+        base = WAN_SERVICE_URL
+
+    return f"{base.rstrip('/')}{normalized_path}"
+
+
+async def _download_remote_media(
+    remote_url: str, *, http_client: httpx.AsyncClient | None = None
+) -> tuple[bytes | None, str | None]:
+    resolved_url = _resolve_remote_url(remote_url)
+    if not resolved_url:
+        return None, None
+
+    owned_client = False
+    client = http_client
+    if client is None:
+        client = httpx.AsyncClient(timeout=30, follow_redirects=True)
+        owned_client = True
+
+    try:
+        response = await client.get(resolved_url)
+        response.raise_for_status()
+
+        content_length = response.headers.get("Content-Length")
+        if content_length and int(content_length) > MAX_DOWNLOAD_SIZE:
+            raise ValueError("Remote media exceeds maximum allowed size")
+
+        content = await response.aread()
+        if len(content) > MAX_DOWNLOAD_SIZE:
+            raise ValueError("Remote media exceeds maximum allowed size")
+
+        candidate_mime = (response.headers.get("Content-Type") or "").split(";", 1)[0].strip() or None
+        return content, candidate_mime
+    finally:
+        if owned_client:
+            await client.aclose()
+
+
+async def persist_generated_media(
     *,
     chat_id: str | None,
     kind: str,
@@ -268,6 +328,7 @@ def persist_generated_media(
     raw_bytes: bytes | None = None,
     remote_url: str | None = None,
     media_root: Path = DEFAULT_GENERATED_MEDIA_DIR,
+    http_client: httpx.AsyncClient | None = None,
 ) -> Tuple[Optional[str], Optional[dict]]:
     """Persist generated media (image/video) to disk and return its descriptor.
 
@@ -288,9 +349,7 @@ def persist_generated_media(
 
     if resolved_bytes is None and remote_url:
         try:
-            response = _download_url(remote_url)
-            resolved_bytes = response.content
-            candidate_mime = (response.headers.get("Content-Type") or "").split(";", 1)[0].strip()
+            resolved_bytes, candidate_mime = await _download_remote_media(remote_url, http_client=http_client)
             if candidate_mime:
                 resolved_mime = candidate_mime
         except Exception:
@@ -393,8 +452,8 @@ def persist_url_to_file(
     return generated_url
 
 
-def _download_url(url: str) -> requests.Response:
-    response = requests.get(url, timeout=15, stream=True)
+def _download_url(url: str) -> httpx.Response:
+    response = httpx.get(url, timeout=15.0, follow_redirects=True)
     response.raise_for_status()
 
     content_length = response.headers.get("Content-Length")

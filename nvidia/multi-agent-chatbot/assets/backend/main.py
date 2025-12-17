@@ -203,27 +203,49 @@ app.mount(
     name="generated-media",
 )
 
+FLUX_PROXY_PREFIX = "/media/flux"
+WAN_PROXY_PREFIX = "/media/wan"
 
-PROHIBITED_UI_TOKENS = ("flux-service", "video-service")
+
+def _rewrite_internal_media_links(text: str) -> tuple[str, bool]:
+    sanitized, scrubbed = scrub_embedded_media_text(text)
+    changed = scrubbed
+
+    def _replace_flux(match: re.Match[str]) -> str:
+        nonlocal changed
+        changed = True
+        path = match.group("path")
+        return f"{FLUX_PROXY_PREFIX}/{path.lstrip('/')}"
+
+    def _replace_wan(match: re.Match[str]) -> str:
+        nonlocal changed
+        changed = True
+        path = match.group("path")
+        return f"{WAN_PROXY_PREFIX}/{path.lstrip('/')}"
+
+    sanitized = re.sub(
+        r"https?://flux-service(?::\d+)?/(?P<path>[^\s'\")]+)",
+        _replace_flux,
+        sanitized,
+        flags=re.IGNORECASE,
+    )
+
+    sanitized = re.sub(
+        r"https?://(?:video-service|wan-service)(?::\d+)?/(?P<path>[^\s'\")]+)",
+        _replace_wan,
+        sanitized,
+        flags=re.IGNORECASE,
+    )
+
+    return sanitized, changed
 
 
 def _scrub_ui_payload(payload: Dict | list | str | None):
-    """Strip internal service URLs and embedded media from UI-bound payloads."""
+    """Rewrite internal media URLs and strip embedded payloads for UI safety."""
 
     def _walk(value):
         if isinstance(value, str):
-            sanitized, scrubbed = scrub_embedded_media_text(value)
-            lowered = sanitized.lower()
-            if any(token in lowered for token in PROHIBITED_UI_TOKENS):
-                logger.warning("Rewriting internal media host in UI payload")
-                sanitized = re.sub(
-                    r"https?://(?:flux-service|video-service)[^\s'\")]+",
-                    "[internal media removed]",
-                    sanitized,
-                    flags=re.IGNORECASE,
-                )
-                scrubbed = True
-            return sanitized, scrubbed
+            return _rewrite_internal_media_links(value)
 
         if isinstance(value, list):
             updated = []
@@ -247,7 +269,7 @@ def _scrub_ui_payload(payload: Dict | list | str | None):
 
     sanitized_payload, scrubbed = _walk(payload)
     if scrubbed:
-        logger.error("Stripped or rewrote media data from outgoing UI payload")
+        logger.info("Stripped or rewrote media data from outgoing UI payload")
     return sanitized_payload
 
 app.mount(

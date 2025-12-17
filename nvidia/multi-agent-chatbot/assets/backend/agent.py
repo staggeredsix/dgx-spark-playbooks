@@ -356,22 +356,30 @@ class ChatAgent:
                     original_image_url = tool_result.get("image_url") or tool_result.get("image")
 
                     if raw_image:
-                        normalized_image = ensure_data_uri(raw_image, fallback_mime="image/png") or raw_image
-                        stored_image_url, descriptor = persist_generated_media(
-                            chat_id=chat_id,
-                            kind="image",
-                            origin=tool_origin,
-                            mime_type="image/png",
-                            data_uri=normalized_image,
-                        )
-
+                        if isinstance(raw_image, str) and raw_image.startswith("data:"):
+                            normalized_image = ensure_data_uri(raw_image, fallback_mime="image/png") or raw_image
+                            stored_image_url, descriptor = await persist_generated_media(
+                                chat_id=chat_id,
+                                kind="image",
+                                origin=tool_origin,
+                                mime_type="image/png",
+                                data_uri=normalized_image,
+                            )
+                        else:
+                            stored_image_url, descriptor = await persist_generated_media(
+                                chat_id=chat_id,
+                                kind="image",
+                                origin=tool_origin,
+                                mime_type="image/png",
+                                remote_url=str(raw_image),
+                            )
                         tool_result.pop("image_base64", None)
 
                         if descriptor and descriptor not in media_descriptors:
                             media_descriptors.append(descriptor)
 
                     if not stored_image_url and isinstance(original_image_url, str):
-                        stored_image_url, descriptor = persist_generated_media(
+                        stored_image_url, descriptor = await persist_generated_media(
                             chat_id=chat_id,
                             kind="image",
                             origin=tool_origin,
@@ -382,43 +390,34 @@ class ChatAgent:
                             media_descriptors.append(descriptor)
 
                     if stored_image_url:
-                        image_markdown = image_markdown or f"![Generated image]({stored_image_url})"
-                        tool_result["image_markdown"] = image_markdown
                         tool_result["image_url"] = stored_image_url
                         tool_result["image"] = stored_image_url
-                        raw_image = None
-                    else:
-                        tool_result.pop("image_url", None)
-                        tool_result.pop("image", None)
+                        tool_result["image_markdown"] = f"![Generated image]({stored_image_url})"
+                        image_markdown = tool_result["image_markdown"]
 
-                    if stored_image_url and not any(item.get("kind") == "image" for item in media_descriptors):
-                        media_descriptors.append(
-                            build_media_descriptor(
-                                kind="image",
-                                origin=tool_origin,
-                                media_ref=build_generated_media_reference(
-                                    stored_image_url, tool_origin, "image"
-                                ),
-                                mime_type="image/png",
-                                media_url=stored_image_url,
+                        if not any(item.get("kind") == "image" for item in media_descriptors):
+                            media_descriptors.append(
+                                build_media_descriptor(
+                                    kind="image",
+                                    origin=tool_origin,
+                                    media_ref=build_generated_media_reference(
+                                        stored_image_url, tool_origin, "image"
+                                    ),
+                                    mime_type="image/png",
+                                    media_url=stored_image_url,
+                                )
                             )
-                        )
+                    else:
+                        image_markdown = self._rewrite_media_content(image_markdown, original_image_url)
+                        if image_markdown:
+                            tool_result["image_markdown"] = image_markdown
 
-                    image_markdown = self._rewrite_media_content(image_markdown, original_image_url)
-
-                    if not image_markdown and tool_result.get("image_url"):
-                        image_markdown = f"![Generated image]({tool_result['image_url']})"
-                        tool_result["image_markdown"] = image_markdown
-                    elif image_markdown:
-                        tool_result["image_markdown"] = image_markdown
-
-                    if image_markdown:
-                        image_url = tool_result.get("image_url") or stored_image_url
+                    if image_markdown and stored_image_url:
                         await self.stream_callback({
                             "type": "image",
                             "content": image_markdown,
-                            "raw": image_url or raw_image,
-                            "url": image_url,
+                            "raw": stored_image_url,
+                            "url": stored_image_url,
                         })
 
                         media_response_parts.append(image_markdown)
@@ -426,7 +425,7 @@ class ChatAgent:
                         media_payload_for_model = {
                             "status": "media_generated",
                             "type": "image",
-                            "image_url": image_url,
+                            "image_url": stored_image_url,
                         }
 
                     video_markdown = tool_result.get("video_markdown")
@@ -437,7 +436,7 @@ class ChatAgent:
 
                     if video_base64:
                         normalized_video = ensure_data_uri(video_base64, fallback_mime="video/mp4") or video_base64
-                        stored_video_url, descriptor = persist_generated_media(
+                        stored_video_url, descriptor = await persist_generated_media(
                             chat_id=chat_id,
                             kind="video",
                             origin=tool_origin,
@@ -451,13 +450,23 @@ class ChatAgent:
                         tool_result.pop("video_base64", None)
 
                     if not stored_video_url and isinstance(original_video_url, str):
-                        stored_video_url, descriptor = persist_generated_media(
-                            chat_id=chat_id,
-                            kind="video",
-                            origin=tool_origin,
-                            mime_type="video/mp4",
-                            remote_url=original_video_url,
-                        )
+                        if original_video_url.startswith("data:"):
+                            normalized_video = ensure_data_uri(original_video_url, fallback_mime="video/mp4") or original_video_url
+                            stored_video_url, descriptor = await persist_generated_media(
+                                chat_id=chat_id,
+                                kind="video",
+                                origin=tool_origin,
+                                mime_type="video/mp4",
+                                data_uri=normalized_video,
+                            )
+                        else:
+                            stored_video_url, descriptor = await persist_generated_media(
+                                chat_id=chat_id,
+                                kind="video",
+                                origin=tool_origin,
+                                mime_type="video/mp4",
+                                remote_url=original_video_url,
+                            )
                         if descriptor and descriptor not in media_descriptors:
                             media_descriptors.append(descriptor)
 
