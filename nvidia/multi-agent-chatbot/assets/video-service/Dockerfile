@@ -6,7 +6,8 @@ FROM nvcr.io/nvidia/pytorch:25.11-py3
 ENV DEBIAN_FRONTEND=noninteractive \
     WAN_CODE_DIR=/opt/wan2.2 \
     WAN_CKPT_DIR=/models/wan2.2/ckpt \
-    WAN_OUT_DIR=/tmp/wan_out
+    WAN_OUT_DIR=/tmp/wan_out \
+    ENABLE_VOICE_TO_VIDEO=0
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -28,16 +29,24 @@ COPY main.py /app/main.py
 COPY preflight.py /app/preflight.py
 
 RUN pip install --upgrade pip && \
-    awk 'BEGIN{IGNORECASE=1} /^[[:space:]]*(#|$)/{next} /^[[:space:]]*(torch|torchvision|torchaudio|pytorch|triton)/{next} {print}' ${WAN_CODE_DIR}/requirements.txt > /tmp/wan-filtered-requirements.txt && \
+    awk 'BEGIN{IGNORECASE=1} /^[[:space:]]*(#|$)/{next} /^[[:space:]]*(torch|torchvision|torchaudio|pytorch|triton|decord)/{next} {print}' ${WAN_CODE_DIR}/requirements.txt > /tmp/wan-filtered-requirements.txt && \
     pip install --no-cache-dir -r /tmp/wan-filtered-requirements.txt && \
     pip install --no-cache-dir \
+        "transformers>=4.48.0" \
+        "accelerate>=0.30.0" \
+        "peft>=0.12.0" \
+        "safetensors>=0.4.3" \
+        einops \
+        tqdm \
+        pillow \
+        numpy \
         fastapi \
         uvicorn[standard] \
         huggingface-hub \
         pydantic \
-        pillow \
         imageio[ffmpeg] && \
-    pip install --no-cache-dir --no-build-isolation --no-deps flash-attn
+    pip install --no-cache-dir --no-build-isolation --no-deps flash-attn && \
+    python -c "import transformers, accelerate, peft, safetensors; print('deps ok', transformers.__version__)"
 
 RUN python - <<'PY'
 import os
