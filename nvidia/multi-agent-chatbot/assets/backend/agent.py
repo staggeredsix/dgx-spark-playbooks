@@ -342,6 +342,7 @@ class ChatAgent:
                     image_markdown = tool_result.get("image_markdown")
                     stored_image_url = None
                     fallback_image_url = None
+                    original_image_url = tool_result.get("image_url") or tool_result.get("image")
 
                     if raw_image:
                         normalized_image = ensure_data_uri(raw_image, fallback_mime="image/png") or raw_image
@@ -369,12 +370,21 @@ class ChatAgent:
                             tool_result["image_url"] = stored_image_url
                             tool_result["image"] = stored_image_url
 
+                    proxied_image_url = self._rewrite_media_url_for_ui(stored_image_url or original_image_url)
+                    if proxied_image_url:
+                        tool_result["image_url"] = proxied_image_url
+                        tool_result["image"] = proxied_image_url
+
+                    image_markdown = self._rewrite_media_content(image_markdown, original_image_url)
+
                     if not image_markdown and tool_result.get("image_url"):
                         image_markdown = f"![Generated image]({tool_result['image_url']})"
                         tool_result["image_markdown"] = image_markdown
+                    elif image_markdown:
+                        tool_result["image_markdown"] = image_markdown
 
                     if image_markdown:
-                        image_url = stored_image_url or tool_result.get("image_url")
+                        image_url = tool_result.get("image_url") or stored_image_url
                         await self.stream_callback({
                             "type": "image",
                             "content": image_markdown,
@@ -394,6 +404,7 @@ class ChatAgent:
                     video_base64 = tool_result.get("video_base64")
                     stored_video_url = None
                     download_name = tool_result.get("video_filename", "wan-video.mp4")
+                    original_video_url = tool_result.get("video_url") or tool_result.get("video")
 
                     if video_base64:
                         normalized_video = ensure_data_uri(video_base64, fallback_mime="video/mp4") or video_base64
@@ -431,12 +442,20 @@ class ChatAgent:
                         # persistence fails.
                         tool_result.pop("video_base64", None)
 
+                    proxied_video_url = self._rewrite_media_url_for_ui(stored_video_url or original_video_url)
+                    if proxied_video_url:
+                        tool_result["video_url"] = proxied_video_url
+                    video_markdown = self._rewrite_media_content(video_markdown, original_video_url)
+                    if video_markdown:
+                        tool_result["video_markdown"] = video_markdown
+
                     if tool_result.get("video_markdown"):
+                        video_url_for_ui = tool_result.get("video_url") or stored_video_url
                         await self.stream_callback({
                             "type": "video",
                             "content": tool_result.get("video_markdown"),
-                            "raw": stored_video_url or tool_result.get("video_base64"),
-                            "url": stored_video_url,
+                            "raw": video_url_for_ui or tool_result.get("video_base64"),
+                            "url": video_url_for_ui,
                             "filename": download_name,
                         })
 
@@ -445,7 +464,7 @@ class ChatAgent:
                         media_payload_for_model = {
                             "status": "media_generated",
                             "type": "video",
-                            "video_url": stored_video_url,
+                            "video_url": video_url_for_ui,
                             "filename": download_name,
                         }
 
@@ -727,6 +746,55 @@ class ChatAgent:
                     hosts.add(host)
 
         return hosts
+
+    def _rewrite_media_url_for_ui(self, url: Optional[str]) -> Optional[str]:
+        if not url:
+            return None
+
+        if url.startswith("/media/flux") or url.startswith("/media/wan"):
+            return url
+
+        parsed = urlparse(url if "://" in url else f"http://{url.lstrip('/')}")
+        host = parsed.netloc
+        if not host:
+            return url
+
+        normalized_path = parsed.path or ""
+        normalized_path = normalized_path if normalized_path.startswith("/") else f"/{normalized_path}"
+        host_lower = host.lower()
+
+        proxy_prefix = None
+        if "flux" in host_lower or normalized_path.startswith("/images"):
+            proxy_prefix = "/media/flux"
+        elif "wan" in host_lower or "video-service" in host_lower or normalized_path.startswith("/videos"):
+            proxy_prefix = "/media/wan"
+
+        if proxy_prefix:
+            proxied_url = f"{proxy_prefix}{normalized_path}"
+            if parsed.query:
+                proxied_url = f"{proxied_url}?{parsed.query}"
+            return proxied_url
+
+        return url
+
+    def _rewrite_media_content(self, content: Optional[str], url: Optional[str] = None) -> Optional[str]:
+        if not content:
+            return content
+
+        rewritten = content
+
+        target_urls = []
+        if url:
+            target_urls.append(url)
+
+        target_urls.extend(re.findall(r"https?://[^)\"'>\\s]+", content))
+
+        for candidate in target_urls:
+            updated = self._rewrite_media_url_for_ui(candidate)
+            if updated and updated != candidate:
+                rewritten = rewritten.replace(candidate, updated)
+
+        return rewritten
 
     def _is_internal_media_reference(self, media_item: str | dict) -> bool:
         media_url: Optional[str] = None
