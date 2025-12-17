@@ -104,8 +104,7 @@ index 3a5cbcd..f1478a9 100644
 -        type=int,
 -        default=80,
 -        help="Number of frames per clip, 48 or 80 or others (must be multiple of 4) for 14B s2v"
-     )
-     args = parser.parse_args()
+    args = parser.parse_args()
      _validate_args(args)
 @@ -479,40 +408,6 @@ def generate(args):
              guide_scale=args.sample_guide_scale,
