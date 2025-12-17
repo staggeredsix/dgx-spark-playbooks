@@ -188,6 +188,12 @@ for directory in (IMAGE_OUTPUT_DIR, VIDEO_OUTPUT_DIR):
     directory.mkdir(parents=True, exist_ok=True)
 
 app.mount(
+    "/media/generated",
+    StaticFiles(directory=GENERATED_MEDIA_DIR, check_dir=False),
+    name="media-generated",
+)
+
+app.mount(
     "/generated-media",
     StaticFiles(directory=GENERATED_MEDIA_DIR, check_dir=False),
     name="generated-media",
