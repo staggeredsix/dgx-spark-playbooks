@@ -53,13 +53,14 @@ RUN python -m pip install --upgrade pip && \
 RUN python -m pip uninstall -y torchvision || true
 
 # --- Final dependency override to avoid WAN pins downgrading transformers ---
-RUN python -m pip uninstall -y transformers peft accelerate || true && \
+RUN python -m pip uninstall -y transformers peft accelerate tokenizers || true && \
     python -m pip install --no-cache-dir --upgrade --force-reinstall --no-deps \
       "transformers==4.57.3" \
       "peft>=0.12.0" && \
     python -m pip install --no-cache-dir \
       "accelerate>=0.30.0" \
-      "safetensors>=0.4.3"
+      "safetensors>=0.4.3" \
+      "tokenizers>=0.22.0,<=0.23.0"
 
 RUN python -m pip uninstall -y torchvision || true
 
@@ -74,6 +75,9 @@ try:
     raise SystemExit("ERROR: torchvision is installed but must not be")
 except Exception as e:
     print("torchvision absent (expected):", type(e).__name__)
+
+import tokenizers
+print("tokenizers", tokenizers.__version__)
 
 import transformers
 print("transformers", transformers.__version__, transformers.__file__)
