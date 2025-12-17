@@ -51,6 +51,7 @@ WAN_SIZE = os.getenv("WAN_SIZE", _variant_cfg["size"])
 WAN_PRECACHE = os.getenv("WAN_PRECACHE", "true").lower() == "true"
 WAN_TIMEOUT_S = int(os.getenv("WAN_TIMEOUT_S", "1800"))
 MAX_PROMPT_LENGTH = 2000
+ENABLE_VOICE_TO_VIDEO = os.getenv("ENABLE_VOICE_TO_VIDEO", "0") == "1"
 
 DEFAULT_HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
 
@@ -89,6 +90,24 @@ def _validate_environment() -> None:
     except Exception as exc:  # pragma: no cover - startup diagnostics
         logger.exception("flash_attn import failed during startup", exc_info=exc)
         raise SystemExit(1) from exc
+
+    try:
+        transformers = importlib.import_module("transformers")
+        accelerate = importlib.import_module("accelerate")
+        peft = importlib.import_module("peft")
+        safetensors = importlib.import_module("safetensors")
+        logger.info(
+            "transformers=%s accelerate=%s peft=%s safetensors=%s",
+            transformers.__version__,
+            accelerate.__version__,
+            peft.__version__,
+            safetensors.__version__,
+        )
+    except Exception as exc:  # pragma: no cover - startup diagnostics
+        logger.exception("Core WAN dependencies failed to import during startup", exc_info=exc)
+        raise SystemExit(1) from exc
+
+    logger.info({"message": "voice_to_video", "enabled": ENABLE_VOICE_TO_VIDEO})
 
 
 _validate_environment()

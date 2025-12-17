@@ -16,6 +16,7 @@ Run with GPU access and a mounted model cache:
 docker run --rm --gpus all \
   -e HF_TOKEN="<your_hf_token>" \
   -e WAN_PRECACHE=true \
+  -e ENABLE_VOICE_TO_VIDEO=0 \
   -p 8081:8081 \
   -v $(pwd)/models:/models \
   wan-video-service
@@ -30,3 +31,8 @@ curl -X POST http://localhost:8081/generate_video \
 ```
 
 The response returns a Base64 MP4 data URI plus a downloadable filename.
+
+## Notes
+
+Voice-to-video and other audio-conditioned flows are disabled by default. Set `ENABLE_VOICE_TO_VIDEO=1` only if you provide the
+required optional audio dependencies.
