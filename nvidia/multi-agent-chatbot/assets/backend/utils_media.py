@@ -17,7 +17,7 @@ import re
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence
+from typing import Iterable, List, Optional, Sequence, Tuple
 
 import requests
 from fastapi import UploadFile
@@ -26,8 +26,9 @@ MAX_DOWNLOAD_SIZE = 20 * 1024 * 1024  # 20 MB safeguard
 MAX_UPLOAD_SIZE = MAX_DOWNLOAD_SIZE
 MEDIA_URL_PATTERN = re.compile(r"https?://[^\s>]+", re.IGNORECASE)
 
+MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT", "/app/media"))
 DEFAULT_GENERATED_MEDIA_DIR = Path(
-    os.getenv("GENERATED_MEDIA_DIR", "/app/media/generated")
+    os.getenv("GENERATED_MEDIA_DIR", str(MEDIA_ROOT / "generated"))
 )
 GENERATED_MEDIA_PREFIX = "/media/generated"
 GENERATED_MEDIA_REF_PREFIX = "generated://"
@@ -92,6 +93,17 @@ def _resolve_media_root(media_root: Path, chat_id: str | None = None) -> Path:
     scoped_root = media_root / chat_id if chat_id else media_root
     scoped_root.mkdir(parents=True, exist_ok=True)
     return scoped_root
+
+
+def _resolve_extension(mime_type: str | None, kind: str) -> str:
+    """Determine a sensible extension from MIME type or media kind."""
+
+    if mime_type:
+        guessed = mimetypes.guess_extension(mime_type)
+        if guessed:
+            return guessed
+
+    return ".png" if kind == "image" else ".mp4"
 
 
 def _build_generated_media_url(filename: str) -> str:
@@ -244,6 +256,66 @@ def persist_data_uri_to_file(
     generated_url = _build_generated_media_url(str(path.relative_to(media_root)))
 
     return generated_url
+
+
+def persist_generated_media(
+    *,
+    chat_id: str | None,
+    kind: str,
+    origin: str,
+    mime_type: str,
+    data_uri: str | None = None,
+    raw_bytes: bytes | None = None,
+    remote_url: str | None = None,
+    media_root: Path = DEFAULT_GENERATED_MEDIA_DIR,
+) -> Tuple[Optional[str], Optional[dict]]:
+    """Persist generated media (image/video) to disk and return its descriptor.
+
+    The helper supports data URIs, raw bytes, or remote URLs (downloaded via the
+    internal network). A UUID-based filename is generated to avoid collisions.
+    """
+
+    resolved_bytes = raw_bytes
+    resolved_mime = mime_type
+
+    if data_uri and data_uri.startswith("data:"):
+        try:
+            header, encoded = data_uri.split(",", 1)
+            resolved_mime = header[5:].split(";", 1)[0].strip() or mime_type
+            resolved_bytes = base64.b64decode(encoded)
+        except (ValueError, OSError):
+            resolved_bytes = None
+
+    if resolved_bytes is None and remote_url:
+        try:
+            response = _download_url(remote_url)
+            resolved_bytes = response.content
+            candidate_mime = (response.headers.get("Content-Type") or "").split(";", 1)[0].strip()
+            if candidate_mime:
+                resolved_mime = candidate_mime
+        except Exception:
+            resolved_bytes = None
+
+    if resolved_bytes is None:
+        return None, None
+
+    extension = _resolve_extension(resolved_mime, kind)
+    filename = f"{uuid.uuid4().hex}{extension}"
+
+    scoped_root = _resolve_media_root(media_root, chat_id)
+    path = scoped_root / filename
+    path.write_bytes(resolved_bytes)
+
+    media_url = _build_generated_media_url(str(path.relative_to(media_root)))
+    descriptor = build_media_descriptor(
+        kind=kind,
+        origin=origin,
+        media_ref=build_generated_media_reference(media_url, origin, kind),
+        mime_type=resolved_mime or mime_type,
+        media_url=media_url,
+    )
+
+    return media_url, descriptor
 
 
 def persist_generated_data_uri(

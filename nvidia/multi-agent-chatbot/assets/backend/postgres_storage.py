@@ -26,6 +26,7 @@ import asyncpg
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, BaseMessage, ToolMessage
 
 from logger import logger
+from utils import scrub_embedded_media_text
 
 
 @dataclass
@@ -240,9 +241,10 @@ class PostgreSQLConversationStorage:
 
     def _message_to_dict(self, message: BaseMessage) -> Dict:
         """Convert a message object to a dictionary for storage."""
+        sanitized_content = self._sanitize_for_storage(message.content)
         result = {
             "type": message.__class__.__name__,
-            "content": message.content,
+            "content": sanitized_content,
         }
         
         if hasattr(message, "tool_calls") and message.tool_calls:
@@ -253,6 +255,34 @@ class PostgreSQLConversationStorage:
             result["name"] = getattr(message, "name", None)
             
         return result
+
+    def _sanitize_for_storage(self, payload: Any) -> Any:
+        """Strip embedded media blobs before persisting to the database."""
+
+        scrubbed = False
+
+        def _walk(value: Any) -> Any:
+            nonlocal scrubbed
+
+            if isinstance(value, str):
+                sanitized, changed = scrub_embedded_media_text(value)
+                scrubbed = scrubbed or changed
+                return sanitized
+
+            if isinstance(value, list):
+                return [_walk(item) for item in value]
+
+            if isinstance(value, dict):
+                return {key: _walk(val) for key, val in value.items()}
+
+            return value
+
+        sanitized_payload = _walk(payload)
+
+        if scrubbed:
+            logger.error("Stripped embedded media from message payload before storage")
+
+        return sanitized_payload
 
     def _dict_to_message(self, data: Dict) -> BaseMessage:
         """Convert a dictionary back to a message object."""

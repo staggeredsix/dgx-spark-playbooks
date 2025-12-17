@@ -40,8 +40,7 @@ from utils_media import (
     build_media_descriptor,
     ensure_data_uri,
     merge_media_payloads,
-    persist_data_uri_to_file,
-    persist_url_to_file,
+    persist_generated_media,
     GENERATED_MEDIA_PREFIX,
     INTERNAL_GENERATED_PATH_PREFIXES,
 )
@@ -354,49 +353,43 @@ class ChatAgent:
                     raw_image = tool_result.get("image_base64") or tool_result.get("image")
                     image_markdown = tool_result.get("image_markdown")
                     stored_image_url = None
-                    fallback_image_url = None
                     original_image_url = tool_result.get("image_url") or tool_result.get("image")
 
                     if raw_image:
                         normalized_image = ensure_data_uri(raw_image, fallback_mime="image/png") or raw_image
-                        stored_image_url = persist_data_uri_to_file(
-                            normalized_image,
-                            "flux-image",
-                            DEFAULT_GENERATED_MEDIA_DIR,
+                        stored_image_url, descriptor = persist_generated_media(
                             chat_id=chat_id,
+                            kind="image",
+                            origin=tool_origin,
+                            mime_type="image/png",
+                            data_uri=normalized_image,
                         )
 
-                        # Prefer a file URL for both the UI and the stored payload so the
-                        # LLM never receives raw base64 blobs.
-                        if stored_image_url:
-                            image_markdown = image_markdown or f"![Generated image]({stored_image_url})"
-                            tool_result["image_markdown"] = image_markdown
-                            tool_result["image_url"] = stored_image_url
-                            tool_result["image"] = stored_image_url
-
-                        # Regardless of storage success, keep the model-facing payload free of
-                        # base64 to avoid accidental inference on raw image streams.
                         tool_result.pop("image_base64", None)
 
-                    if not stored_image_url:
-                        raw_url_candidate = tool_result.get("image_url") or tool_result.get("image")
-                        if isinstance(raw_url_candidate, str):
-                            fallback_image_url = persist_url_to_file(
-                                raw_url_candidate,
-                                "flux-image",
-                                DEFAULT_GENERATED_MEDIA_DIR,
-                                chat_id=chat_id,
-                            )
+                        if descriptor and descriptor not in media_descriptors:
+                            media_descriptors.append(descriptor)
 
-                        if fallback_image_url:
-                            stored_image_url = fallback_image_url
-                            tool_result["image_url"] = stored_image_url
-                            tool_result["image"] = stored_image_url
+                    if not stored_image_url and isinstance(original_image_url, str):
+                        stored_image_url, descriptor = persist_generated_media(
+                            chat_id=chat_id,
+                            kind="image",
+                            origin=tool_origin,
+                            mime_type="image/png",
+                            remote_url=original_image_url,
+                        )
+                        if descriptor and descriptor not in media_descriptors:
+                            media_descriptors.append(descriptor)
 
-                    proxied_image_url = self._rewrite_media_url_for_ui(stored_image_url or original_image_url)
-                    if proxied_image_url:
-                        tool_result["image_url"] = proxied_image_url
-                        tool_result["image"] = proxied_image_url
+                    if stored_image_url:
+                        image_markdown = image_markdown or f"![Generated image]({stored_image_url})"
+                        tool_result["image_markdown"] = image_markdown
+                        tool_result["image_url"] = stored_image_url
+                        tool_result["image"] = stored_image_url
+                        raw_image = None
+                    else:
+                        tool_result.pop("image_url", None)
+                        tool_result.pop("image", None)
 
                     if stored_image_url and not any(item.get("kind") == "image" for item in media_descriptors):
                         media_descriptors.append(
@@ -444,64 +437,60 @@ class ChatAgent:
 
                     if video_base64:
                         normalized_video = ensure_data_uri(video_base64, fallback_mime="video/mp4") or video_base64
-                        stored_video_url = persist_data_uri_to_file(
-                            normalized_video,
-                            "wan-video",
-                            DEFAULT_GENERATED_MEDIA_DIR,
+                        stored_video_url, descriptor = persist_generated_media(
                             chat_id=chat_id,
+                            kind="video",
+                            origin=tool_origin,
+                            mime_type="video/mp4",
+                            data_uri=normalized_video,
                         )
-                        if stored_video_url:
-                            fallback_video_markdown = " ".join([
-                                f'<video controls src="{stored_video_url}">Your browser does not support the video tag.</video>',
-                                f'<a href="{stored_video_url}" download="{download_name}">Download video</a>',
-                            ])
-                            tool_result["video_url"] = stored_video_url
-                            updated_video_markdown = video_markdown or fallback_video_markdown
 
-                            if video_markdown:
-                                updated_video_markdown = video_markdown
-                                updated_video_markdown = re.sub(
-                                    r'src=["\'](?:data:video[^"\']+|/[^"\']+)["\']',
-                                    f'src="{stored_video_url}"',
-                                    updated_video_markdown,
-                                    flags=re.IGNORECASE,
-                                )
-                                updated_video_markdown = re.sub(
-                                    r'\((data:video[^)]+|/[^)]+)\)',
-                                    f'({stored_video_url})',
-                                    updated_video_markdown,
-                                    flags=re.IGNORECASE,
-                                )
+                        if descriptor and descriptor not in media_descriptors:
+                            media_descriptors.append(descriptor)
 
-                                if stored_video_url not in updated_video_markdown:
-                                    updated_video_markdown = fallback_video_markdown
-
-                            tool_result["video_markdown"] = updated_video_markdown
-                            video_markdown = updated_video_markdown
-
-                        # Strip base64 so the model never receives raw video blobs even if
-                        # persistence fails.
                         tool_result.pop("video_base64", None)
 
-                    proxied_video_url = self._rewrite_media_url_for_ui(stored_video_url or original_video_url)
-                    if proxied_video_url:
-                        tool_result["video_url"] = proxied_video_url
-                    video_markdown = self._rewrite_media_content(video_markdown, original_video_url)
-                    if video_markdown:
-                        tool_result["video_markdown"] = video_markdown
-
-                    if stored_video_url and not any(item.get("kind") == "video" for item in media_descriptors):
-                        media_descriptors.append(
-                            build_media_descriptor(
-                                kind="video",
-                                origin=tool_origin,
-                                media_ref=build_generated_media_reference(
-                                    stored_video_url, tool_origin, "video"
-                                ),
-                                mime_type="video/mp4",
-                                media_url=stored_video_url,
-                            )
+                    if not stored_video_url and isinstance(original_video_url, str):
+                        stored_video_url, descriptor = persist_generated_media(
+                            chat_id=chat_id,
+                            kind="video",
+                            origin=tool_origin,
+                            mime_type="video/mp4",
+                            remote_url=original_video_url,
                         )
+                        if descriptor and descriptor not in media_descriptors:
+                            media_descriptors.append(descriptor)
+
+                    if stored_video_url:
+                        fallback_video_markdown = " ".join([
+                            f'<video controls src="{stored_video_url}">Your browser does not support the video tag.</video>',
+                            f'<a href="{stored_video_url}" download="{download_name}">Download video</a>',
+                        ])
+                        tool_result["video_url"] = stored_video_url
+                        updated_video_markdown = video_markdown or fallback_video_markdown
+
+                        if video_markdown:
+                            updated_video_markdown = video_markdown
+                            updated_video_markdown = re.sub(
+                                r'src=["\'](?:data:video[^"\']+|/[^"\']+)["\']',
+                                f'src="{stored_video_url}"',
+                                updated_video_markdown,
+                                flags=re.IGNORECASE,
+                            )
+                            updated_video_markdown = re.sub(
+                                r'\((data:video[^)]+|/[^)]+)\)',
+                                f'({stored_video_url})',
+                                updated_video_markdown,
+                                flags=re.IGNORECASE,
+                            )
+
+                            if stored_video_url not in updated_video_markdown:
+                                updated_video_markdown = fallback_video_markdown
+
+                        tool_result["video_markdown"] = updated_video_markdown
+                        video_markdown = updated_video_markdown
+                    else:
+                        tool_result.pop("video_url", None)
 
                     if tool_result.get("video_markdown"):
                         video_url_for_ui = tool_result.get("video_url") or stored_video_url
