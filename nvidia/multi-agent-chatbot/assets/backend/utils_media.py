@@ -49,16 +49,17 @@ def _build_generated_media_url(filename: str) -> str:
     """Build a stable, internal-facing media URL for stored artifacts."""
 
     prefix = GENERATED_MEDIA_PREFIX or "/generated-media"
-    normalized_prefix = prefix.rstrip("/")
 
-    if "://" in normalized_prefix:
-        # Preserve custom schemes like generated:// or http(s):// service roots
-        return f"{normalized_prefix}/{filename}"
+    if "://" in prefix:
+        if prefix.endswith("://"):
+            normalized_prefix = prefix
+        else:
+            normalized_prefix = prefix.rstrip("/") + "/"
+        return f"{normalized_prefix}{filename}"
 
-    if not normalized_prefix.startswith("/"):
-        normalized_prefix = f"/{normalized_prefix}"
-
-    return f"{normalized_prefix}/{filename}"
+    normalized_prefix = prefix if prefix.startswith("/") else f"/{prefix}"
+    normalized_prefix = normalized_prefix.rstrip("/") + "/"
+    return f"{normalized_prefix}{filename}"
 
 
 def ensure_data_uri(payload: str, fallback_mime: str = "image/png") -> Optional[str]:
@@ -137,8 +138,6 @@ def persist_data_uri_to_file(
         return None
 
     generated_url = _build_generated_media_url(path.name)
-    if not generated_url.startswith(GENERATED_MEDIA_PREFIX):
-        return None
 
     return generated_url
 
@@ -180,8 +179,6 @@ def persist_url_to_file(url: str, prefix: str, media_root: Path = DEFAULT_GENERA
         return None
 
     generated_url = _build_generated_media_url(path.name)
-    if not generated_url.startswith(GENERATED_MEDIA_PREFIX):
-        return None
 
     return generated_url
 
