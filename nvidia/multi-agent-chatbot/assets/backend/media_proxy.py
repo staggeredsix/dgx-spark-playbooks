@@ -90,12 +90,13 @@ async def _proxy_stream(upstream_url: str, request: Request, *, identifier: str)
         raise HTTPException(status_code=502, detail="Upstream media service unavailable") from exc
 
 
-@media_router.get("/media/flux/images/{filename}")
-async def proxy_flux_image(filename: str, request: Request) -> StreamingResponse:
-    """Proxy image content from the FLUX service."""
+@media_router.get("/media/flux/{path:path}")
+async def proxy_flux_media(path: str, request: Request) -> StreamingResponse:
+    """Proxy media content from the FLUX service."""
 
-    upstream_url = f"{FLUX_SERVICE_URL.rstrip('/')}/images/{filename}"
-    return await _proxy_stream(upstream_url, request, identifier=f"flux:{filename}")
+    normalized_path = path.lstrip("/")
+    upstream_url = f"{FLUX_SERVICE_URL.rstrip('/')}/{normalized_path}"
+    return await _proxy_stream(upstream_url, request, identifier=f"flux:{normalized_path}")
 
 
 @media_router.get("/media/wan/{path:path}")
