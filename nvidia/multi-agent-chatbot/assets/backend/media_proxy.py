@@ -26,7 +26,7 @@ FLUX_SERVICE_URL = os.getenv("FLUX_SERVICE_URL", "http://flux-service:8080")
 WAN_SERVICE_URL = os.getenv("WAN_SERVICE_URL", "http://wan-service:8080")
 
 
-async def _proxy_stream(upstream_url: str, request: Request) -> StreamingResponse:
+async def _proxy_stream(upstream_url: str, request: Request, *, identifier: str) -> StreamingResponse:
     """Stream media from an internal service back to the client.
 
     Range requests are forwarded when provided, but partial content handling
@@ -47,6 +47,7 @@ async def _proxy_stream(upstream_url: str, request: Request) -> StreamingRespons
                         "message": "Proxying media request",
                         "upstream_url": upstream_url,
                         "status_code": upstream_response.status_code,
+                        "identifier": identifier,
                     }
                 )
 
@@ -59,6 +60,7 @@ async def _proxy_stream(upstream_url: str, request: Request) -> StreamingRespons
                             "message": "Upstream media service error",
                             "upstream_url": upstream_url,
                             "status_code": upstream_response.status_code,
+                            "identifier": identifier,
                         }
                     )
                     raise HTTPException(status_code=502, detail="Unable to fetch media from upstream service")
@@ -81,26 +83,26 @@ async def _proxy_stream(upstream_url: str, request: Request) -> StreamingRespons
             {
                 "message": "Media proxy upstream request failed",
                 "upstream_url": upstream_url,
+                "identifier": identifier,
                 "error": str(exc),
             }
         )
         raise HTTPException(status_code=502, detail="Upstream media service unavailable") from exc
 
 
-@media_router.get("/media/flux/images/{image_path:path}")
-async def proxy_flux_image(image_path: str, request: Request) -> StreamingResponse:
+@media_router.get("/media/flux/images/{filename}")
+async def proxy_flux_image(filename: str, request: Request) -> StreamingResponse:
     """Proxy image content from the FLUX service."""
 
-    normalized_path = image_path.lstrip("/")
-    upstream_url = f"{FLUX_SERVICE_URL.rstrip('/')}/images/{normalized_path}"
-    return await _proxy_stream(upstream_url, request)
+    upstream_url = f"{FLUX_SERVICE_URL.rstrip('/')}/images/{filename}"
+    return await _proxy_stream(upstream_url, request, identifier=f"flux:{filename}")
 
 
-@media_router.get("/media/wan/videos/{video_path:path}")
-async def proxy_wan_video(video_path: str, request: Request) -> StreamingResponse:
-    """Proxy video content from the WAN service."""
+@media_router.get("/media/wan/{path:path}")
+async def proxy_wan_media(path: str, request: Request) -> StreamingResponse:
+    """Proxy media content from the WAN service."""
 
-    normalized_path = video_path.lstrip("/")
-    upstream_url = f"{WAN_SERVICE_URL.rstrip('/')}/videos/{normalized_path}"
-    return await _proxy_stream(upstream_url, request)
+    normalized_path = path.lstrip("/")
+    upstream_url = f"{WAN_SERVICE_URL.rstrip('/')}/{normalized_path}"
+    return await _proxy_stream(upstream_url, request, identifier=f"wan:{normalized_path}")
 
