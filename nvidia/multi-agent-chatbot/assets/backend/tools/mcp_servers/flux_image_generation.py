@@ -71,6 +71,7 @@ async def generate_image(
     height: Optional[int] = None,
     steps: Optional[int] = None,
     guidance_scale: Optional[float] = None,
+    chat_id: Optional[str] = None,
 ):
     """Generate an image via the FLUX inference service."""
 
@@ -128,6 +129,7 @@ async def generate_image(
             origin="flux-service",
             kind="image",
             mime_type="image/png",
+            chat_id=chat_id,
         )
 
     if not stored_image_url:

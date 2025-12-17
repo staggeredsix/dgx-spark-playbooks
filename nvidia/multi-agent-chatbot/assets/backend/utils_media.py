@@ -27,16 +27,16 @@ MAX_UPLOAD_SIZE = MAX_DOWNLOAD_SIZE
 MEDIA_URL_PATTERN = re.compile(r"https?://[^\s>]+", re.IGNORECASE)
 
 DEFAULT_GENERATED_MEDIA_DIR = Path(
-    os.getenv("GENERATED_MEDIA_DIR", "/tmp/chatbot-generated-media")
+    os.getenv("GENERATED_MEDIA_DIR", "/app/media/generated")
 )
-GENERATED_MEDIA_PREFIX = "/generated-media"
+GENERATED_MEDIA_PREFIX = "/media/generated"
 GENERATED_MEDIA_REF_PREFIX = "generated://"
 
 # Tool outputs originating from internal generators. These should never be sent
 # to the supervisor model as image/video parts. Downstream filters rely on these
 # origins and the generated:// scheme to decide whether a media item is safe to
 # forward.
-BLOCKED_MEDIA_ORIGINS = {"flux-service", "video-service"}
+BLOCKED_MEDIA_ORIGINS = {"flux-service", "video-service", "llm-generated"}
 
 # Paths under which the backend serves internally generated media artifacts.
 # These prefixes are treated as trusted/internal references throughout the
@@ -44,6 +44,7 @@ BLOCKED_MEDIA_ORIGINS = {"flux-service", "video-service"}
 INTERNAL_GENERATED_PATH_PREFIXES = (
     GENERATED_MEDIA_PREFIX,
     f"{GENERATED_MEDIA_PREFIX}/",
+    "/media/generated/",
     "/generated-media/",
     "/generated/",
     "/static/generated/",
@@ -61,6 +62,7 @@ def build_media_descriptor(
     width: int | None = None,
     height: int | None = None,
     duration_s: float | None = None,
+    media_url: str | None = None,
 ) -> dict:
     """Create a canonical media descriptor used throughout the pipeline."""
 
@@ -71,6 +73,9 @@ def build_media_descriptor(
         "mime_type": mime_type,
     }
 
+    if media_url:
+        descriptor["media_url"] = media_url
+
     if width is not None:
         descriptor["width"] = width
     if height is not None:
@@ -79,6 +84,14 @@ def build_media_descriptor(
         descriptor["duration_s"] = duration_s
 
     return descriptor
+
+
+def _resolve_media_root(media_root: Path, chat_id: str | None = None) -> Path:
+    """Return a chat-scoped media directory, creating it if needed."""
+
+    scoped_root = media_root / chat_id if chat_id else media_root
+    scoped_root.mkdir(parents=True, exist_ok=True)
+    return scoped_root
 
 
 def _build_generated_media_url(filename: str) -> str:
@@ -134,12 +147,16 @@ def should_forward_media_to_supervisor(media: dict) -> bool:
     """Decide whether a media descriptor should be forwarded to the supervisor."""
 
     origin = media.get("origin", "unknown")
-    ref = (media.get("media_ref") or media.get("url") or "").strip()
+    ref = (media.get("media_ref") or media.get("url") or media.get("media_url") or "").strip()
 
     if origin in BLOCKED_MEDIA_ORIGINS:
         return False
 
     if is_generated_media_reference(ref):
+        return False
+
+    media_url = (media.get("media_url") or "").strip()
+    if is_generated_media_reference(media_url):
         return False
 
     return True
@@ -179,7 +196,11 @@ def _to_data_uri(raw_bytes: bytes, mime_type: str) -> str:
 
 
 def persist_data_uri_to_file(
-    data_uri: str, prefix: str, media_root: Path = DEFAULT_GENERATED_MEDIA_DIR
+    data_uri: str,
+    prefix: str,
+    media_root: Path = DEFAULT_GENERATED_MEDIA_DIR,
+    *,
+    chat_id: str | None = None,
 ) -> Optional[str]:
     """Persist a base64 data URI to disk and return a URL path for serving.
 
@@ -213,14 +234,14 @@ def persist_data_uri_to_file(
     )
 
     try:
-        media_root.mkdir(parents=True, exist_ok=True)
+        scoped_root = _resolve_media_root(media_root, chat_id)
         filename = f"{prefix}-{uuid.uuid4().hex}{extension}"
-        path = media_root / filename
+        path = scoped_root / filename
         path.write_bytes(base64.b64decode(encoded))
     except Exception:
         return None
 
-    generated_url = _build_generated_media_url(path.name)
+    generated_url = _build_generated_media_url(str(path.relative_to(media_root)))
 
     return generated_url
 
@@ -233,10 +254,11 @@ def persist_generated_data_uri(
     kind: str,
     mime_type: str,
     media_root: Path = DEFAULT_GENERATED_MEDIA_DIR,
+    chat_id: str | None = None,
 ) -> tuple[Optional[str], Optional[dict]]:
     """Persist a generated data URI and return its descriptor."""
 
-    stored_url = persist_data_uri_to_file(data_uri, prefix, media_root)
+    stored_url = persist_data_uri_to_file(data_uri, prefix, media_root, chat_id=chat_id)
     if not stored_url:
         return None, None
 
@@ -246,12 +268,19 @@ def persist_generated_data_uri(
         origin=origin,
         media_ref=media_ref,
         mime_type=mime_type,
+        media_url=stored_url,
     )
 
     return stored_url, descriptor
 
 
-def persist_url_to_file(url: str, prefix: str, media_root: Path = DEFAULT_GENERATED_MEDIA_DIR) -> Optional[str]:
+def persist_url_to_file(
+    url: str,
+    prefix: str,
+    media_root: Path = DEFAULT_GENERATED_MEDIA_DIR,
+    *,
+    chat_id: str | None = None,
+) -> Optional[str]:
     """Download a remote media URL and persist it locally.
 
     Args:
@@ -280,14 +309,14 @@ def persist_url_to_file(url: str, prefix: str, media_root: Path = DEFAULT_GENERA
     extension = mimetypes.guess_extension(content_type or "") or (".mp4" if url.lower().endswith(".mp4") else ".png")
 
     try:
-        media_root.mkdir(parents=True, exist_ok=True)
+        scoped_root = _resolve_media_root(media_root, chat_id)
         filename = f"{prefix}-{uuid.uuid4().hex}{extension}"
-        path = media_root / filename
+        path = scoped_root / filename
         path.write_bytes(response.content)
     except Exception:
         return None
 
-    generated_url = _build_generated_media_url(path.name)
+    generated_url = _build_generated_media_url(str(path.relative_to(media_root)))
 
     return generated_url
 

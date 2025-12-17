@@ -18,6 +18,7 @@
 
 import json
 import os
+import re
 import time
 from typing import List, Dict, Any
 
@@ -30,7 +31,7 @@ from langchain_core.messages import (
 )
 
 from logger import logger
-from utils_media import should_forward_media_to_supervisor
+from utils_media import should_forward_media_to_supervisor, is_generated_media_reference
 from vector_store import VectorStore
 
 
@@ -145,6 +146,35 @@ async def process_and_ingest_files_background(
         }, exc_info=True)
 
 
+DATA_URI_PATTERN = re.compile(
+    r"data:(?:image|video)/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]+",
+    re.IGNORECASE,
+)
+
+
+def _strip_embedded_media(text: str) -> str:
+    """Remove embedded data URIs and internal media URLs from a string payload."""
+
+    if not text:
+        return text
+
+    sanitized = DATA_URI_PATTERN.sub("[generated media omitted]", text)
+    sanitized = re.sub(r"https?://[^\s]+", _replace_internal_media_url, sanitized)
+    sanitized = re.sub(
+        r"(/(?:media/generated|generated-media)/[^\s)]+)",
+        r"[generated media available at: \1]",
+        sanitized,
+    )
+    return sanitized
+
+
+def _replace_internal_media_url(match: re.Match[str]) -> str:
+    url = match.group(0)
+    if is_generated_media_reference(url):
+        return f"[generated media available at: {url}]"
+    return url
+
+
 def _normalize_content_parts(content: Any, allow_media_parts: bool):
     parts: List[Any] = []
     blocked: List[dict] = []
@@ -161,8 +191,10 @@ def _normalize_content_parts(content: Any, allow_media_parts: bool):
             origin = item.get("origin", "unknown")
             ref = (item.get("media_ref") or item.get("url") or "unknown").strip()
             kind = item.get("kind", "media")
+            media_url = item.get("media_url") or ref
             allowed = allow_media_parts and should_forward_media_to_supervisor(item)
-            stub_text = f"[{kind} from {origin}: {ref}]"
+            stub_target = media_url if media_url and media_url != "unknown" else ref
+            stub_text = f"[generated {kind} available at: {stub_target}]" if not allowed else f"[{kind} from {origin}: {ref}]"
 
             if not allowed:
                 blocked.append({"origin": origin, "media_ref": ref, "kind": kind})
@@ -205,7 +237,8 @@ def _normalize_content_parts(content: Any, allow_media_parts: bool):
             continue
 
         if isinstance(item, str):
-            parts.append({"type": "text", "text": item})
+            stripped_text = _strip_embedded_media(item)
+            parts.append({"type": "text", "text": stripped_text})
             continue
 
         parts.append(item)

@@ -43,7 +43,7 @@ WAN_SERVICE_URL = os.getenv("WAN_SERVICE_URL", "http://localhost:8080")
 
 
 @mcp.tool()
-async def generate_video(prompt: str, hf_api_key: Optional[str] = None):
+async def generate_video(prompt: str, hf_api_key: Optional[str] = None, chat_id: Optional[str] = None):
     """Generate a video via the WAN inference service."""
 
     payload = {
@@ -88,6 +88,7 @@ async def generate_video(prompt: str, hf_api_key: Optional[str] = None):
             origin="video-service",
             kind="video",
             mime_type="video/mp4",
+            chat_id=chat_id,
         )
 
     if not stored_video_url:

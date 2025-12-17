@@ -237,7 +237,16 @@ function stripVideoMarkup(content?: string): string {
     .trim();
 }
 
-const MEDIA_FIELDS = ["image", "image_base64", "video", "video_base64", "media", "image_url", "video_url"] as const;
+const MEDIA_FIELDS = [
+  "image",
+  "image_base64",
+  "video",
+  "video_base64",
+  "media",
+  "image_url",
+  "video_url",
+  "media_url",
+] as const;
 
 function stripDataUrisFromText(content?: string): string {
   if (!content) return "";
@@ -502,6 +511,18 @@ export default function QuerySection({
             const markdownImageMatch = content.match(/!\[[^\]]*]\(([^)]+)\)/);
             const embeddedImageSrc = markdownImageMatch?.[1];
 
+            const mediaDescriptors = Array.isArray(structuredContent?.media)
+              ? (structuredContent?.media as any[])
+              : Array.isArray((msg as any)?.media)
+                ? ((msg as any)?.media as any[])
+                : [];
+            const firstDescriptor = mediaDescriptors.find(
+              (entry) => entry && typeof entry === "object" &&
+                (typeof (entry as any).media_url === "string" || typeof (entry as any).url === "string" || typeof (entry as any).media_ref === "string"),
+            ) as { media_url?: string; url?: string; media_ref?: string; kind?: string } | undefined;
+            const descriptorUrl = firstDescriptor?.media_url || firstDescriptor?.url || firstDescriptor?.media_ref;
+            const descriptorKind = (firstDescriptor?.kind || "").toLowerCase();
+
             const readField = (fields: readonly string[]): string | undefined => {
               for (const field of fields) {
                 const fromMessage = typeof msg?.[field] === "string" ? (msg as any)[field] : undefined;
@@ -527,6 +548,15 @@ export default function QuerySection({
 
             let imageCandidate = rawImage;
             let videoCandidate = rawVideoField || rawVideoSrc || undefined;
+
+            const resolvedDescriptorSrc = resolveMediaSrc(descriptorUrl) || descriptorUrl;
+            if (resolvedDescriptorSrc) {
+              if (descriptorKind === "video") {
+                videoCandidate = videoCandidate || resolvedDescriptorSrc;
+              } else {
+                imageCandidate = imageCandidate || resolvedDescriptorSrc;
+              }
+            }
 
             if (rawMedia) {
               const mediaType = inferMediaType(rawMedia, rawVideoField ? "video" : "image");
@@ -577,8 +607,9 @@ export default function QuerySection({
                 Boolean(msg?.isImage) ||
                 Boolean(formattedImageSrc) ||
                 Boolean(markdownImageMatch) ||
+                descriptorKind === "image" ||
                 Boolean(rawMedia && inferMediaType(rawMedia, rawVideoField ? "video" : "image") === "image"),
-              isVideo: Boolean(msg?.isVideo) || Boolean(formattedVideoSrc),
+              isVideo: Boolean(msg?.isVideo) || Boolean(formattedVideoSrc) || descriptorKind === "video",
               videoSrc: formattedVideoSrc || undefined,
               downloadName: typeof msg?.downloadName === "string" ? msg.downloadName : undefined,
               imageSrc: formattedImageSrc || undefined,

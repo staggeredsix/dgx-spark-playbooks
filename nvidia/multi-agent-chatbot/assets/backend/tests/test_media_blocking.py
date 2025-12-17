@@ -1,3 +1,5 @@
+import json
+
 # SPDX-License-Identifier: Apache-2.0
 
 from langchain_core.messages import HumanMessage, ToolMessage
@@ -50,3 +52,19 @@ def test_user_media_is_forwarded_to_supervisor():
         part.get("type") == "image_url" and part.get("image_url", {}).get("url") == "https://example.com/picture.png"
         for part in content
     )
+
+
+def test_data_uri_and_generated_urls_are_stripped():
+    raw_data_uri = "data:image/png;base64," + ("A" * 2048)
+    generated_url = "/media/generated/abc/file.png"
+
+    human = HumanMessage(content=f"Here is media {raw_data_uri} and {generated_url}")
+
+    converted = convert_langgraph_messages_to_openai([human])
+
+    assert converted[0]["role"] == "user"
+    text_content = converted[0]["content"]
+    assert isinstance(text_content, str)
+    assert "base64" not in text_content
+    assert "generated media available" in text_content
+    assert len(json.dumps(converted)) < 2000

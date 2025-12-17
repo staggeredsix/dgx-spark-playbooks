@@ -297,6 +297,7 @@ class ChatAgent:
         skip_followup_generation = False
         media_response_parts: list[str] = []
         media_payload_for_model: Dict[str, Any] | None = None
+        chat_id = state.get("chat_id")
 
         for i, tool_call in enumerate(last_message.tool_calls):
             logger.debug(f'Executing tool {i+1}/{len(last_message.tool_calls)}: {tool_call["name"]} with args: {tool_call["args"]}')
@@ -307,8 +308,11 @@ class ChatAgent:
                     "flux-service" if tool_call["name"] == "generate_image" else "video-service"
                     if tool_call["name"] == "generate_video" else "unknown"
                 )
+                tool_args = tool_call["args"].copy()
+                if tool_call["name"] in {"generate_image", "generate_video"} and chat_id:
+                    tool_args.setdefault("chat_id", chat_id)
+
                 if tool_call["name"] in {"explain_image", "explain_video"}:
-                    tool_args = tool_call["args"].copy()
                     media_key = "image" if tool_call["name"] == "explain_image" else "video_frames"
                     merged_media = merge_media_payloads(tool_args.get(media_key), state.get("image_data"))
                     filtered_media = [
@@ -342,7 +346,7 @@ class ChatAgent:
                         ):
                             state["process_image_used"] = True
                 else:
-                    tool_result = await self.tools_by_name[tool_call["name"]].ainvoke(tool_call["args"])
+                    tool_result = await self.tools_by_name[tool_call["name"]].ainvoke(tool_args)
                 payload_for_model = tool_result
 
                 if isinstance(tool_result, dict):
@@ -355,7 +359,12 @@ class ChatAgent:
 
                     if raw_image:
                         normalized_image = ensure_data_uri(raw_image, fallback_mime="image/png") or raw_image
-                        stored_image_url = persist_data_uri_to_file(normalized_image, "flux-image")
+                        stored_image_url = persist_data_uri_to_file(
+                            normalized_image,
+                            "flux-image",
+                            DEFAULT_GENERATED_MEDIA_DIR,
+                            chat_id=chat_id,
+                        )
 
                         # Prefer a file URL for both the UI and the stored payload so the
                         # LLM never receives raw base64 blobs.
@@ -372,7 +381,12 @@ class ChatAgent:
                     if not stored_image_url:
                         raw_url_candidate = tool_result.get("image_url") or tool_result.get("image")
                         if isinstance(raw_url_candidate, str):
-                            fallback_image_url = persist_url_to_file(raw_url_candidate, "flux-image")
+                            fallback_image_url = persist_url_to_file(
+                                raw_url_candidate,
+                                "flux-image",
+                                DEFAULT_GENERATED_MEDIA_DIR,
+                                chat_id=chat_id,
+                            )
 
                         if fallback_image_url:
                             stored_image_url = fallback_image_url
@@ -393,6 +407,7 @@ class ChatAgent:
                                     stored_image_url, tool_origin, "image"
                                 ),
                                 mime_type="image/png",
+                                media_url=stored_image_url,
                             )
                         )
 
@@ -429,7 +444,12 @@ class ChatAgent:
 
                     if video_base64:
                         normalized_video = ensure_data_uri(video_base64, fallback_mime="video/mp4") or video_base64
-                        stored_video_url = persist_data_uri_to_file(normalized_video, "wan-video")
+                        stored_video_url = persist_data_uri_to_file(
+                            normalized_video,
+                            "wan-video",
+                            DEFAULT_GENERATED_MEDIA_DIR,
+                            chat_id=chat_id,
+                        )
                         if stored_video_url:
                             fallback_video_markdown = " ".join([
                                 f'<video controls src="{stored_video_url}">Your browser does not support the video tag.</video>',
@@ -479,6 +499,7 @@ class ChatAgent:
                                     stored_video_url, tool_origin, "video"
                                 ),
                                 mime_type="video/mp4",
+                                media_url=stored_video_url,
                             )
                         )
 
