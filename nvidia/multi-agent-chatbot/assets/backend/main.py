@@ -55,6 +55,7 @@ from utils_media import (
     merge_media_payloads,
     process_uploaded_media,
 )
+from media_proxy import media_router
 from vector_store import EmbeddingServiceUnavailable, create_vector_store_with_config
 from warmup import WarmupManager
 
@@ -155,6 +156,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(media_router)
 
 
 GENERATED_MEDIA_DIR = DEFAULT_GENERATED_MEDIA_DIR
