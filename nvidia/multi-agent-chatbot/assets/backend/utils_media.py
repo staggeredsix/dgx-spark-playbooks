@@ -31,16 +31,34 @@ DEFAULT_GENERATED_MEDIA_DIR = Path(
 )
 GENERATED_MEDIA_PREFIX = "/generated-media"
 
+# Paths under which the backend serves internally generated media artifacts.
+# These prefixes are treated as trusted/internal references throughout the
+# agent to avoid misclassifying generated outputs as user-provided media.
+INTERNAL_GENERATED_PATH_PREFIXES = (
+    GENERATED_MEDIA_PREFIX,
+    f"{GENERATED_MEDIA_PREFIX}/",
+    "/generated-media/",
+    "/generated/",
+    "/static/generated/",
+    "/image_generation_output/",
+    "/video_generation_output/",
+)
+
 
 def _build_generated_media_url(filename: str) -> str:
-    prefix = GENERATED_MEDIA_PREFIX
+    """Build a stable, internal-facing media URL for stored artifacts."""
 
-    if prefix.endswith("//"):
-        return f"{prefix}{filename}"
-
+    prefix = GENERATED_MEDIA_PREFIX or "/generated-media"
     normalized_prefix = prefix.rstrip("/")
 
-    return f"{normalized_prefix}/" + filename
+    if "://" in normalized_prefix:
+        # Preserve custom schemes like generated:// or http(s):// service roots
+        return f"{normalized_prefix}/{filename}"
+
+    if not normalized_prefix.startswith("/"):
+        normalized_prefix = f"/{normalized_prefix}"
+
+    return f"{normalized_prefix}/{filename}"
 
 
 def ensure_data_uri(payload: str, fallback_mime: str = "image/png") -> Optional[str]:
@@ -118,7 +136,11 @@ def persist_data_uri_to_file(
     except Exception:
         return None
 
-    return _build_generated_media_url(path.name)
+    generated_url = _build_generated_media_url(path.name)
+    if not generated_url.startswith(GENERATED_MEDIA_PREFIX):
+        return None
+
+    return generated_url
 
 
 def persist_url_to_file(url: str, prefix: str, media_root: Path = DEFAULT_GENERATED_MEDIA_DIR) -> Optional[str]:
@@ -157,7 +179,11 @@ def persist_url_to_file(url: str, prefix: str, media_root: Path = DEFAULT_GENERA
     except Exception:
         return None
 
-    return _build_generated_media_url(path.name)
+    generated_url = _build_generated_media_url(path.name)
+    if not generated_url.startswith(GENERATED_MEDIA_PREFIX):
+        return None
+
+    return generated_url
 
 
 def _download_url(url: str) -> requests.Response:

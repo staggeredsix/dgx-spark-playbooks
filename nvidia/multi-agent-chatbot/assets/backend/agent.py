@@ -41,6 +41,7 @@ from utils_media import (
     persist_data_uri_to_file,
     persist_url_to_file,
     GENERATED_MEDIA_PREFIX,
+    INTERNAL_GENERATED_PATH_PREFIXES,
 )
 
 
@@ -287,7 +288,7 @@ class ChatAgent:
             "iterations": state.get("iterations", 0)
         })
         await self.stream_callback({'type': 'node_start', 'data': 'tool_node'})
-        
+
         outputs = []
         messages = state.get("messages", [])
         last_message = messages[-1]
@@ -330,7 +331,8 @@ class ChatAgent:
                             tool_args[media_key] = filtered_media
                         logger.info(f'Executing tool {tool_call["name"]} with args: {tool_args}')
                         tool_result = await self.tools_by_name[tool_call["name"]].ainvoke(tool_args)
-                        state["process_image_used"] = True
+                        if tool_result is not None:
+                            state["process_image_used"] = True
                 else:
                     tool_result = await self.tools_by_name[tool_call["name"]].ainvoke(tool_call["args"])
                 payload_for_model = tool_result
@@ -487,9 +489,8 @@ class ChatAgent:
             state.pop("skip_llm_after_media", None)
             state.pop("media_final_content", None)
 
-        new_iterations = state.get("iterations", 0) + 1
-        state["iterations"] = new_iterations
-        
+        state["iterations"] = state.get("iterations", 0) + 1
+
         logger.debug({
             "message": "GRAPH: EXITING NODE - action/tool_node",
             "chat_id": state.get("chat_id"),
@@ -500,7 +501,7 @@ class ChatAgent:
         await self.stream_callback({'type': 'node_end', 'data': 'tool_node'})
         return {
             "messages": messages + outputs,
-            "iterations": new_iterations,
+            "iterations": state.get("iterations"),
             "skip_llm_after_media": state.get("skip_llm_after_media"),
             "media_final_content": state.get("media_final_content"),
         }
@@ -535,6 +536,7 @@ class ChatAgent:
         external_media, media_debug = self._classify_media_items(
             state.get("image_data"), chat_id=state.get("chat_id"), context="generate"
         )
+        external_media = [item for item in external_media if item]
 
         supports_tools = bool(self.openai_tools)
         has_tools = supports_tools and len(self.openai_tools) > 0
@@ -556,7 +558,10 @@ class ChatAgent:
                 "tool_choice": "auto"
             }
 
-            if external_media and not state.get("process_image_used"):
+            external_media_present = bool(external_media)
+            process_image_used = bool(state.get("process_image_used"))
+
+            if external_media_present and not process_image_used:
                 has_video_frames = any(
                     isinstance(item, dict) and "timestamp" in item
                     for item in external_media
@@ -572,6 +577,23 @@ class ChatAgent:
                         "type": "function",
                         "function": {"name": forced_tool}
                     }
+                    logger.info(
+                        {
+                            "message": "Forcing vision tool due to external media",
+                            "chat_id": state.get("chat_id"),
+                            "forced_tool": forced_tool,
+                            "external_media_samples": media_debug.get("external_examples"),
+                        }
+                    )
+            else:
+                logger.info(
+                    {
+                        "message": "Not forcing vision tool",
+                        "chat_id": state.get("chat_id"),
+                        "external_media_present": external_media_present,
+                        "process_image_used": process_image_used,
+                    }
+                )
 
         logger.info({
             "message": "LLM inference request",
@@ -710,7 +732,7 @@ class ChatAgent:
         media_url: Optional[str] = None
 
         if isinstance(media_item, dict):
-            for key in ("url", "image_url", "video_url", "data"):
+            for key in ("url", "image_url", "video_url", "data", "image", "video"):
                 value = media_item.get(key)
                 if isinstance(value, str):
                     media_url = value
@@ -731,13 +753,7 @@ class ChatAgent:
         normalized_path = parsed.path or ""
         normalized_path = normalized_path if normalized_path.startswith("/") else f"/{normalized_path}" if normalized_path else ""
 
-        internal_path_prefixes = {
-            GENERATED_MEDIA_PREFIX,
-            f"{GENERATED_MEDIA_PREFIX}/",
-            "/generated-media/",
-            "/generated/",
-            "/static/generated/",
-        }
+        internal_path_prefixes = set(INTERNAL_GENERATED_PATH_PREFIXES)
 
         for candidate in internal_path_prefixes:
             if not candidate:
@@ -772,6 +788,8 @@ class ChatAgent:
         internal_examples: List[str] = []
         normalized_examples: List[str] = []
 
+        exclusion_reasons: List[str] = []
+
         for item in normalized_items:
             summary_value = None
             if isinstance(item, str):
@@ -792,17 +810,20 @@ class ChatAgent:
 
             if item is None:
                 ignored_empty.append(item)
+                exclusion_reasons.append("None payload ignored")
                 continue
 
             if isinstance(item, str):
                 if not item.strip():
                     ignored_empty.append(item)
+                    exclusion_reasons.append("Empty string ignored")
                     continue
 
                 if self._is_internal_media_reference(item):
                     internal_media.append(item)
                     if len(internal_examples) < 3:
                         internal_examples.append(item)
+                    exclusion_reasons.append("Internal media string")
                     continue
 
                 external_media.append(item)
@@ -821,6 +842,7 @@ class ChatAgent:
 
                 if not url_candidates:
                     ignored_empty.append(item)
+                    exclusion_reasons.append("Dict without media content")
                     continue
 
                 non_internal_candidates = [candidate for candidate in url_candidates if not self._is_internal_media_reference(candidate)]
@@ -833,10 +855,12 @@ class ChatAgent:
                     internal_media.append(item)
                     if len(internal_examples) < 3:
                         internal_examples.append(url_candidates[0])
+                    exclusion_reasons.append("Dict contained only internal media")
 
                 continue
 
             ignored_unsupported.append(item)
+            exclusion_reasons.append(f"Unsupported media payload type: {type(item)}")
 
         debug_payload: Dict[str, Any] = {
             "context": context,
@@ -857,6 +881,15 @@ class ChatAgent:
                 **debug_payload,
             }
         )
+
+        if exclusion_reasons:
+            logger.debug(
+                {
+                    "message": "Media classification exclusions",
+                    "chat_id": chat_id,
+                    "reasons": exclusion_reasons[:10],
+                }
+            )
 
         return external_media, debug_payload
 
@@ -1031,6 +1064,8 @@ class ChatAgent:
                 normalized_media, chat_id=chat_id, context="query"
             )
 
+            external_media = [item for item in external_media if item]
+
             if external_media:
                 image_context = (
                     "\n\nMEDIA CONTEXT: The user included remote or uploaded media with their message. "
@@ -1040,8 +1075,25 @@ class ChatAgent:
                 )
                 system_prompt_with_image = base_system_prompt + image_context
                 messages_to_process = [SystemMessage(content=system_prompt_with_image)]
+                logger.info(
+                    {
+                        "message": "Added media context to system prompt",
+                        "chat_id": chat_id,
+                        "external_media_count": len(external_media),
+                        "external_examples": media_debug.get("external_examples"),
+                    }
+                )
             else:
                 messages_to_process = [SystemMessage(content=base_system_prompt)]
+                if normalized_media:
+                    logger.info(
+                        {
+                            "message": "Skipped media context due to only internal media",
+                            "chat_id": chat_id,
+                            "normalized_media_count": len(normalized_media),
+                            "internal_examples": media_debug.get("internal_examples"),
+                        }
+                    )
 
             if existing_messages:
                 for msg in existing_messages:
