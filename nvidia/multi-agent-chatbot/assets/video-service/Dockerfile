@@ -3,6 +3,10 @@
 
 FROM nvcr.io/nvidia/pytorch:25.11-py3
 
+# Never use torchvision in this service (torchvision is incompatible with NVIDIA torch build here)
+ENV TRANSFORMERS_NO_TORCHVISION=1
+ENV HF_HUB_DISABLE_TELEMETRY=1
+
 ENV DEBIAN_FRONTEND=noninteractive \
     WAN_CODE_DIR=/opt/wan2.2 \
     WAN_CKPT_DIR=/models/wan2.2/ckpt \
@@ -28,14 +32,13 @@ WORKDIR /app
 COPY main.py /app/main.py
 COPY preflight.py /app/preflight.py
 
-RUN pip install --upgrade pip && \
-    awk 'BEGIN{IGNORECASE=1} /^[[:space:]]*(#|$)/{next} /^[[:space:]]*(torch|torchvision|torchaudio|pytorch|triton|decord)/{next} {print}' ${WAN_CODE_DIR}/requirements.txt > /tmp/wan-filtered-requirements.txt && \
-    pip install --no-cache-dir -r /tmp/wan-filtered-requirements.txt && \
-    pip install --no-cache-dir \
-        "transformers>=4.48.0" \
-        "accelerate>=0.30.0" \
-        "peft>=0.12.0" \
-        "safetensors>=0.4.3" \
+RUN python -m pip install --upgrade pip && \
+    awk 'BEGIN{IGNORECASE=1} \
+      /^[[:space:]]*(#|$)/{next} \
+      /^[[:space:]]*(torch|torchvision|torchaudio|pytorch|triton|decord)/{next} \
+      {print}' ${WAN_CODE_DIR}/requirements.txt > /tmp/wan-filtered-requirements.txt && \
+    python -m pip install --no-cache-dir -r /tmp/wan-filtered-requirements.txt && \
+    python -m pip install --no-cache-dir \
         einops \
         tqdm \
         pillow \
@@ -45,24 +48,42 @@ RUN pip install --upgrade pip && \
         huggingface-hub \
         pydantic \
         "imageio[ffmpeg]" && \
-    pip install --no-cache-dir --no-build-isolation --no-deps flash-attn
+    python -m pip install --no-cache-dir --no-build-isolation --no-deps flash-attn
+
+RUN python -m pip uninstall -y torchvision || true
 
 # --- Final dependency override to avoid WAN pins downgrading transformers ---
 RUN python -m pip uninstall -y transformers peft accelerate || true && \
-    python -m pip install --no-cache-dir --upgrade --force-reinstall \
+    python -m pip install --no-cache-dir --upgrade --force-reinstall --no-deps \
       "transformers==4.57.3" \
-      "peft>=0.12.0" \
+      "peft>=0.12.0" && \
+    python -m pip install --no-cache-dir \
       "accelerate>=0.30.0" \
       "safetensors>=0.4.3"
 
+RUN python -m pip uninstall -y torchvision || true
+
 # Build-time sanity check (must pass)
 RUN python - <<'PY'
+import os
+print("TRANSFORMERS_NO_TORCHVISION =", os.getenv("TRANSFORMERS_NO_TORCHVISION"))
+
+# torchvision must not be installed
+try:
+    import torchvision  # noqa
+    raise SystemExit("ERROR: torchvision is installed but must not be")
+except Exception as e:
+    print("torchvision absent (expected):", type(e).__name__)
+
 import transformers
 print("transformers", transformers.__version__, transformers.__file__)
-import transformers.modeling_layers as ml
-print("modeling_layers OK", ml)
+
+# This is the import peft needs
+import transformers.modeling_layers
+print("transformers.modeling_layers OK")
+
 import peft
-print("peft", peft.__version__, peft.__file__)
+print("peft OK", peft.__version__, peft.__file__)
 PY
 
 RUN python - <<'PY'
