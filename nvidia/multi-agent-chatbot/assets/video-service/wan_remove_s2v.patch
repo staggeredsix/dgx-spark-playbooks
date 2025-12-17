@@ -1,5 +1,5 @@
 diff --git a/generate.py b/generate.py
-index 3a5cbcd..f1478a9 100644
+index 3a5cbcd..a068f89 100644
 --- a/generate.py
 +++ b/generate.py
 @@ -42,20 +42,6 @@ EXAMPLE_PROMPT = {
@@ -51,62 +51,7 @@ index 3a5cbcd..f1478a9 100644
  
  
  def _parse_args():
-@@ -244,55 +222,6 @@ def _parse_args():
-         action="store_true",
-         default=False,
-         help="Whether to use relighting lora.")
--    
--    # following args only works for s2v
--    parser.add_argument(
--        "--num_clip",
--        type=int,
--        default=None,
--        help="Number of video clips to generate, the whole video will not exceed the length of audio."
--    )
--    parser.add_argument(
--        "--audio",
--        type=str,
--        default=None,
--        help="Path to the audio file, e.g. wav, mp3")
--    parser.add_argument(
--        "--enable_tts",
--        action="store_true",
--        default=False,
--        help="Use CosyVoice to synthesis audio")
--    parser.add_argument(
--        "--tts_prompt_audio",
--        type=str,
--        default=None,
--        help="Path to the tts prompt audio file, e.g. wav, mp3. Must be greater than 16khz, and between 5s to 15s.")
--    parser.add_argument(
--        "--tts_prompt_text",
--        type=str,
--        default=None,
--        help="Content to the tts prompt audio. If provided, must exactly match tts_prompt_audio")
--    parser.add_argument(
--        "--tts_text",
--        type=str,
--        default=None,
--        help="Text wish to synthesize")
--    parser.add_argument(
--        "--pose_video",
--        type=str,
--        default=None,
--        help="Provide Dw-pose sequence to do Pose Driven")
--    parser.add_argument(
--        "--start_from_ref",
--        action="store_true",
--        default=False,
--        help="whether set the reference image as the starting point for generation"
--    )
--    parser.add_argument(
--        "--infer_frames",
--        type=int,
--        default=80,
--        help="Number of frames per clip, 48 or 80 or others (must be multiple of 4) for 14B s2v"
-    args = parser.parse_args()
-     _validate_args(args)
-@@ -479,40 +408,6 @@ def generate(args):
+@@ -479,40 +457,6 @@ def generate(args):
              guide_scale=args.sample_guide_scale,
              seed=args.base_seed,
              offload_model=args.offload_model)
@@ -147,7 +92,7 @@ index 3a5cbcd..f1478a9 100644
      else:
          logging.info("Creating WanI2V pipeline.")
          wan_i2v = wan.WanI2V(
-@@ -555,11 +450,6 @@ def generate(args):
+@@ -555,11 +499,6 @@ def generate(args):
              nrow=1,
              normalize=True,
              value_range=(-1, 1))
