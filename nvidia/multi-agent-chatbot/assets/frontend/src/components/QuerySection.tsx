@@ -26,6 +26,18 @@ import { oneDark, oneLight, Dark, Light } from "react-syntax-highlighter/dist/es
 import WelcomeSection from "./WelcomeSection";
 
 const VIDEO_SOURCE_REGEX = /src=["'](data:video[^"']+|https?:\/\/[^"']+|\/[^"']+)["']/i;
+const IMAGE_EXTENSION_REGEX = /\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/i;
+const VIDEO_EXTENSION_REGEX = /\.(mp4|webm|mov|m4v|avi|mkv|ogv)(\?|#|$)/i;
+
+function isVideoUrl(url?: string | null): boolean {
+  if (!url) return false;
+  return VIDEO_EXTENSION_REGEX.test(url) || /video/i.test(url);
+}
+
+function isImageUrl(url?: string | null): boolean {
+  if (!url) return false;
+  return IMAGE_EXTENSION_REGEX.test(url) || (!isVideoUrl(url) && /image/i.test(url));
+}
 
 function decodeBase64Payload(payload: string): Uint8Array | null {
   const compact = payload.replace(/\s+/g, "");
@@ -593,11 +605,29 @@ export default function QuerySection({
               ) ||
               undefined;
 
+            const videoDetected = Boolean(
+              msg?.isVideo ||
+              descriptorKind === "video" ||
+              (formattedVideoSrc && isVideoUrl(formattedVideoSrc)) ||
+              (rawMedia && inferMediaType(rawMedia, rawVideoField ? "video" : "image") === "video"),
+            );
+
+            const imageDetected = Boolean(
+              msg?.isImage ||
+              descriptorKind === "image" ||
+              (formattedImageSrc && isImageUrl(formattedImageSrc)) ||
+              markdownImageMatch ||
+              (rawMedia && inferMediaType(rawMedia, rawVideoField ? "video" : "image") === "image"),
+            );
+
+            const finalVideo = videoDetected;
+            const finalImage = imageDetected && !finalVideo;
+
             const cleanedContent =
               stripDataUrisFromText(content) ||
-              (formattedImageSrc ? "[image]" : formattedVideoSrc ? "[video]" : "");
+              (finalImage ? "[image]" : finalVideo ? "[video]" : "");
             const normalizedContent =
-              cleanedContent || (formattedVideoSrc ? "[video]" : formattedImageSrc ? "[image]" : "");
+              cleanedContent || (finalVideo ? "[video]" : finalImage ? "[image]" : "");
 
             return {
               type:
@@ -607,17 +637,13 @@ export default function QuerySection({
                   ? "ToolMessage"
                   : "AssistantMessage",
               content: normalizedContent,
-              isImage:
-                Boolean(msg?.isImage) ||
-                Boolean(formattedImageSrc) ||
-                Boolean(markdownImageMatch) ||
-                descriptorKind === "image" ||
-                Boolean(rawMedia && inferMediaType(rawMedia, rawVideoField ? "video" : "image") === "image"),
-              isVideo: Boolean(msg?.isVideo) || Boolean(formattedVideoSrc) || descriptorKind === "video",
-              videoSrc: formattedVideoSrc || undefined,
+              isImage: finalImage,
+              isVideo: finalVideo,
+              videoSrc: finalVideo ? formattedVideoSrc || undefined : undefined,
               downloadName: typeof msg?.downloadName === "string" ? msg.downloadName : undefined,
-              imageSrc: formattedImageSrc || undefined,
-              imageObjectUrl: formattedImageSrc?.startsWith("blob:") ? formattedImageSrc : undefined,
+              imageSrc: finalImage ? formattedImageSrc || undefined : undefined,
+              imageObjectUrl:
+                finalImage && formattedImageSrc?.startsWith("blob:") ? formattedImageSrc : undefined,
             };
           })
         : [];
@@ -720,6 +746,7 @@ export default function QuerySection({
                 formatImageSrc(rawImage, registerObjectUrl, mediaBlobCache.current) ??
                 formatImageSrc(contentImage, registerObjectUrl, mediaBlobCache.current) ??
                 formatImageSrc(textImage, registerObjectUrl, mediaBlobCache.current);
+              const safeImageSrc = imageSrc && !isVideoUrl(imageSrc) ? imageSrc : null;
               const imageMarkdown = imageSrc
                 ? `![Generated image](${imageSrc})`
                 : contentImage || textImage || "[image available]";
@@ -731,9 +758,10 @@ export default function QuerySection({
                 messages.push({
                   type: "AssistantMessage",
                   content: imageMarkdown,
-                  isImage: Boolean(imageSrc),
-                  imageSrc,
-                  imageObjectUrl: imageSrc?.startsWith("blob:") ? imageSrc : undefined,
+                  isImage: true,
+                  isVideo: false,
+                  imageSrc: safeImageSrc || undefined,
+                  imageObjectUrl: safeImageSrc?.startsWith("blob:") ? safeImageSrc : undefined,
                 });
                 return JSON.stringify(messages);
               });
@@ -742,16 +770,19 @@ export default function QuerySection({
             case "video": {
               const providedUrl = typeof msg.url === "string" ? msg.url : "";
               const rawVideo = typeof msg.raw === "string" ? msg.raw : "";
+              const resolvedVideoUrl = resolveMediaSrc(providedUrl) || resolveMediaSrc(rawVideo);
+              const safeVideoSrc = resolvedVideoUrl && (isVideoUrl(resolvedVideoUrl) || msg.type === "video")
+                ? resolvedVideoUrl
+                : extractVideoSrc(text);
               const videoMarkdown =
                 msg.content ||
                 text ||
-                ((resolveMediaSrc(providedUrl) || resolveMediaSrc(rawVideo))
-                  ? `<video controls src="${resolveMediaSrc(providedUrl) || resolveMediaSrc(rawVideo)}">Your browser does not support the video tag.</video>`
+                (safeVideoSrc
+                  ? `<video controls src="${safeVideoSrc}">Your browser does not support the video tag.</video>`
                   : "");
               const downloadName = typeof msg.filename === "string" ? msg.filename : "wan-video.mp4";
               const videoSrc =
-                resolveMediaSrc(providedUrl) ||
-                resolveMediaSrc(rawVideo) ||
+                (safeVideoSrc && isVideoUrl(safeVideoSrc) ? safeVideoSrc : null) ||
                 extractVideoSrc(videoMarkdown);
               if (!videoMarkdown && !videoSrc) break;
 
@@ -762,6 +793,7 @@ export default function QuerySection({
                   type: "AssistantMessage",
                   content: videoMarkdown,
                   isVideo: true,
+                  isImage: false,
                   videoSrc,
                   downloadName,
                 });
@@ -1115,12 +1147,13 @@ export default function QuerySection({
         {parseMessages(response).map((message, index) => {
           const isHuman = message.type === "HumanMessage";
           const key = `${message.type}-${index}`;
-          const videoSrc =
-            formatVideoSrc(
-              message.videoSrc || extractVideoSrc(message.content),
-              registerObjectUrl,
-              mediaBlobCache.current,
-            ) || null;
+          const videoSrc = message.isVideo
+            ? formatVideoSrc(
+                message.videoSrc || extractVideoSrc(message.content),
+                registerObjectUrl,
+                mediaBlobCache.current,
+              ) || null
+            : null;
           const cleanedContent = message.isVideo ? stripVideoMarkup(message.content) : message.content;
           const shouldRenderMarkdown = Boolean(cleanedContent?.trim());
           const imageSrc = message.isImage

@@ -348,8 +348,17 @@ async def persist_generated_media(
             resolved_bytes = None
 
     if resolved_bytes is None and remote_url:
+        resolved_remote_url = remote_url
+
+        if remote_url.startswith("/images/"):
+            resolved_remote_url = f"{FLUX_SERVICE_URL.rstrip('/')}{remote_url}"
+        elif remote_url.startswith("/videos/"):
+            resolved_remote_url = f"{WAN_SERVICE_URL.rstrip('/')}{remote_url}"
+
         try:
-            resolved_bytes, candidate_mime = await _download_remote_media(remote_url, http_client=http_client)
+            resolved_bytes, candidate_mime = await _download_remote_media(
+                resolved_remote_url, http_client=http_client
+            )
             if candidate_mime:
                 resolved_mime = candidate_mime
         except Exception:
