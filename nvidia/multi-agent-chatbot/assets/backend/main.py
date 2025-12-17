@@ -29,6 +29,7 @@ import contextlib
 import datetime
 import json
 import os
+import re
 import shutil
 import subprocess
 import uuid
@@ -51,10 +52,12 @@ from model_management import ensure_model_available_async
 from utils import process_and_ingest_files_background
 from utils_media import (
     DEFAULT_GENERATED_MEDIA_DIR,
+    MEDIA_ROOT,
     collect_remote_media_from_text,
     merge_media_payloads,
     process_uploaded_media,
 )
+from utils import scrub_embedded_media_text
 from media_proxy import media_router
 from vector_store import EmbeddingServiceUnavailable, create_vector_store_with_config
 from warmup import WarmupManager
@@ -161,6 +164,7 @@ app.include_router(media_router)
 
 
 GENERATED_MEDIA_DIR = DEFAULT_GENERATED_MEDIA_DIR
+MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
 GENERATED_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 
 def _determine_repo_root() -> Path:
@@ -190,7 +194,7 @@ for directory in (IMAGE_OUTPUT_DIR, VIDEO_OUTPUT_DIR):
 app.mount(
     "/media/generated",
     StaticFiles(directory=GENERATED_MEDIA_DIR, check_dir=False),
-    name="media-generated",
+    name="media_generated",
 )
 
 app.mount(
@@ -198,6 +202,53 @@ app.mount(
     StaticFiles(directory=GENERATED_MEDIA_DIR, check_dir=False),
     name="generated-media",
 )
+
+
+PROHIBITED_UI_TOKENS = ("flux-service", "video-service")
+
+
+def _scrub_ui_payload(payload: Dict | list | str | None):
+    """Strip internal service URLs and embedded media from UI-bound payloads."""
+
+    def _walk(value):
+        if isinstance(value, str):
+            sanitized, scrubbed = scrub_embedded_media_text(value)
+            lowered = sanitized.lower()
+            if any(token in lowered for token in PROHIBITED_UI_TOKENS):
+                logger.warning("Rewriting internal media host in UI payload")
+                sanitized = re.sub(
+                    r"https?://(?:flux-service|video-service)[^\s'\")]+",
+                    "[internal media removed]",
+                    sanitized,
+                    flags=re.IGNORECASE,
+                )
+                scrubbed = True
+            return sanitized, scrubbed
+
+        if isinstance(value, list):
+            updated = []
+            changed = False
+            for item in value:
+                sanitized_item, scrubbed = _walk(item)
+                updated.append(sanitized_item)
+                changed = changed or scrubbed
+            return updated, changed
+
+        if isinstance(value, dict):
+            updated = {}
+            changed = False
+            for key, item in value.items():
+                sanitized_item, scrubbed = _walk(item)
+                updated[key] = sanitized_item
+                changed = changed or scrubbed
+            return updated, changed
+
+        return value, False
+
+    sanitized_payload, scrubbed = _walk(payload)
+    if scrubbed:
+        logger.error("Stripped or rewrote media data from outgoing UI payload")
+    return sanitized_payload
 
 app.mount(
     "/image_generation_output",
@@ -349,7 +400,7 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: str):
 
         try:
             async for event in agent.query(query_text=new_message, chat_id=chat_id, image_data=merged_media):
-                await websocket.send_json(event)
+                await websocket.send_json(_scrub_ui_payload(event))
         except asyncio.CancelledError:
             logger.debug(f"Streaming cancelled for chat {chat_id}")
             raise
@@ -362,7 +413,7 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: str):
         finally:
             final_messages = await postgres_storage.get_messages(chat_id)
             final_history = [postgres_storage._message_to_dict(msg) for i, msg in enumerate(final_messages) if i != 0]
-            await websocket.send_json({"type": "history", "messages": final_history})
+            await websocket.send_json(_scrub_ui_payload({"type": "history", "messages": final_history}))
 
     active_task: asyncio.Task | None = None
 
@@ -372,7 +423,7 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: str):
 
         history_messages = await postgres_storage.get_messages(chat_id)
         history = [postgres_storage._message_to_dict(msg) for i, msg in enumerate(history_messages) if i != 0]
-        await websocket.send_json({"type": "history", "messages": history})
+        await websocket.send_json(_scrub_ui_payload({"type": "history", "messages": history}))
 
         receive_task = asyncio.create_task(websocket.receive_text())
 

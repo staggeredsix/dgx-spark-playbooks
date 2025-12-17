@@ -150,6 +150,22 @@ DATA_URI_PATTERN = re.compile(
     r"data:(?:image|video)/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]+",
     re.IGNORECASE,
 )
+BASE64_EMBED_PATTERN = re.compile(r"data:(?:image|video)/[^,]+,", re.IGNORECASE)
+MEDIA_STUB = "[embedded media stripped]"
+
+
+def scrub_embedded_media_text(text: str) -> tuple[str, bool]:
+    """Remove inline data URIs/base64 payloads from text content."""
+
+    if not text:
+        return text, False
+
+    sanitized = DATA_URI_PATTERN.sub(MEDIA_STUB, text)
+    if "base64," in sanitized:
+        sanitized = re.sub(r"base64,[A-Za-z0-9+/=]+", "base64,[stripped]", sanitized)
+
+    scrubbed = sanitized != text
+    return sanitized, scrubbed
 
 
 def _strip_embedded_media(text: str) -> str:
@@ -158,7 +174,7 @@ def _strip_embedded_media(text: str) -> str:
     if not text:
         return text
 
-    sanitized = DATA_URI_PATTERN.sub("[generated media omitted]", text)
+    sanitized, _ = scrub_embedded_media_text(text)
     sanitized = re.sub(r"https?://[^\s]+", _replace_internal_media_url, sanitized)
     sanitized = re.sub(
         r"(/(?:media/generated|generated-media)/[^\s)]+)",

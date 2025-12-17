@@ -537,7 +537,11 @@ export default function QuerySection({
 
             const rawImage = readField(["image", "image_base64", "image_url"]);
             const rawVideoField = readField(["video", "video_base64", "video_url"]);
-            const rawMedia = readField(MEDIA_FIELDS);
+            let rawMedia = readField(MEDIA_FIELDS);
+            const directMediaUrl = typeof (msg as any)?.media_url === "string" ? (msg as any).media_url : undefined;
+            if (!rawMedia && directMediaUrl) {
+              rawMedia = directMediaUrl;
+            }
             const rawVideoSrc =
               typeof msg?.videoUrl === "string"
                 ? msg.videoUrl
