@@ -30,6 +30,13 @@ DEFAULT_GENERATED_MEDIA_DIR = Path(
     os.getenv("GENERATED_MEDIA_DIR", "/tmp/chatbot-generated-media")
 )
 GENERATED_MEDIA_PREFIX = "/generated-media"
+GENERATED_MEDIA_REF_PREFIX = "generated://"
+
+# Tool outputs originating from internal generators. These should never be sent
+# to the supervisor model as image/video parts. Downstream filters rely on these
+# origins and the generated:// scheme to decide whether a media item is safe to
+# forward.
+BLOCKED_MEDIA_ORIGINS = {"flux-service", "video-service"}
 
 # Paths under which the backend serves internally generated media artifacts.
 # These prefixes are treated as trusted/internal references throughout the
@@ -43,6 +50,35 @@ INTERNAL_GENERATED_PATH_PREFIXES = (
     "/image_generation_output/",
     "/video_generation_output/",
 )
+
+
+def build_media_descriptor(
+    *,
+    kind: str,
+    origin: str,
+    media_ref: str,
+    mime_type: str | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    duration_s: float | None = None,
+) -> dict:
+    """Create a canonical media descriptor used throughout the pipeline."""
+
+    descriptor = {
+        "kind": kind,
+        "origin": origin,
+        "media_ref": media_ref,
+        "mime_type": mime_type,
+    }
+
+    if width is not None:
+        descriptor["width"] = width
+    if height is not None:
+        descriptor["height"] = height
+    if duration_s is not None:
+        descriptor["duration_s"] = duration_s
+
+    return descriptor
 
 
 def _build_generated_media_url(filename: str) -> str:
@@ -60,6 +96,53 @@ def _build_generated_media_url(filename: str) -> str:
     normalized_prefix = prefix if prefix.startswith("/") else f"/{prefix}"
     normalized_prefix = normalized_prefix.rstrip("/") + "/"
     return f"{normalized_prefix}{filename}"
+
+
+def build_generated_media_reference(stored_url: str | None, origin: str, kind: str) -> str:
+    """Create a stable generated:// reference for persisted tool media."""
+
+    filename = Path(stored_url).name if stored_url else uuid.uuid4().hex
+    return f"{GENERATED_MEDIA_REF_PREFIX}{origin}/{kind}/{filename}"
+
+
+def is_generated_media_reference(ref: str | None) -> bool:
+    """Check if a media reference points to internally generated content."""
+
+    if not ref:
+        return False
+
+    if ref.startswith(GENERATED_MEDIA_REF_PREFIX):
+        return True
+
+    normalized = ref if ref.startswith("/") else f"/{ref}"
+    normalized = normalized.rstrip("/") + "/"
+
+    for candidate in INTERNAL_GENERATED_PATH_PREFIXES:
+        if not candidate:
+            continue
+
+        candidate_norm = candidate if candidate.startswith("/") else f"/{candidate}"
+        candidate_norm = candidate_norm.rstrip("/") + "/"
+
+        if normalized.startswith(candidate_norm):
+            return True
+
+    return False
+
+
+def should_forward_media_to_supervisor(media: dict) -> bool:
+    """Decide whether a media descriptor should be forwarded to the supervisor."""
+
+    origin = media.get("origin", "unknown")
+    ref = (media.get("media_ref") or media.get("url") or "").strip()
+
+    if origin in BLOCKED_MEDIA_ORIGINS:
+        return False
+
+    if is_generated_media_reference(ref):
+        return False
+
+    return True
 
 
 def ensure_data_uri(payload: str, fallback_mime: str = "image/png") -> Optional[str]:
@@ -140,6 +223,32 @@ def persist_data_uri_to_file(
     generated_url = _build_generated_media_url(path.name)
 
     return generated_url
+
+
+def persist_generated_data_uri(
+    data_uri: str,
+    *,
+    prefix: str,
+    origin: str,
+    kind: str,
+    mime_type: str,
+    media_root: Path = DEFAULT_GENERATED_MEDIA_DIR,
+) -> tuple[Optional[str], Optional[dict]]:
+    """Persist a generated data URI and return its descriptor."""
+
+    stored_url = persist_data_uri_to_file(data_uri, prefix, media_root)
+    if not stored_url:
+        return None, None
+
+    media_ref = build_generated_media_reference(stored_url, origin, kind)
+    descriptor = build_media_descriptor(
+        kind=kind,
+        origin=origin,
+        media_ref=media_ref,
+        mime_type=mime_type,
+    )
+
+    return stored_url, descriptor
 
 
 def persist_url_to_file(url: str, prefix: str, media_root: Path = DEFAULT_GENERATED_MEDIA_DIR) -> Optional[str]:

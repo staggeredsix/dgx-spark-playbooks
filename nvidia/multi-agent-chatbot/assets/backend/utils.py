@@ -30,6 +30,7 @@ from langchain_core.messages import (
 )
 
 from logger import logger
+from utils_media import should_forward_media_to_supervisor
 from vector_store import VectorStore
 
 
@@ -144,32 +145,146 @@ async def process_and_ingest_files_background(
         }, exc_info=True)
 
 
+def _normalize_content_parts(content: Any, allow_media_parts: bool):
+    parts: List[Any] = []
+    blocked: List[dict] = []
+
+    items = content if isinstance(content, list) else [content]
+
+    for item in items:
+        if item is None:
+            continue
+
+        if isinstance(item, dict) and (
+            "media_ref" in item or "kind" in item or "origin" in item
+        ):
+            origin = item.get("origin", "unknown")
+            ref = (item.get("media_ref") or item.get("url") or "unknown").strip()
+            kind = item.get("kind", "media")
+            allowed = allow_media_parts and should_forward_media_to_supervisor(item)
+            stub_text = f"[{kind} from {origin}: {ref}]"
+
+            if not allowed:
+                blocked.append({"origin": origin, "media_ref": ref, "kind": kind})
+                parts.append({"type": "text", "text": stub_text})
+                continue
+
+            if not allow_media_parts:
+                parts.append({"type": "text", "text": stub_text})
+                continue
+
+            url = item.get("media_ref") or item.get("url")
+            mime = item.get("mime_type")
+
+            if kind == "image" and url:
+                image_payload: Dict[str, Any] = {"url": url}
+                if mime:
+                    image_payload["mime_type"] = mime
+                parts.append({"type": "image_url", "image_url": image_payload})
+            elif kind == "video":
+                # OpenAI text chat API does not support video parts yet; emit a stub.
+                parts.append({"type": "text", "text": stub_text})
+            else:
+                parts.append({"type": "text", "text": stub_text})
+            continue
+
+        if isinstance(item, dict) and item.get("type") == "image_url":
+            ref = item.get("image_url", {}).get("url") or item.get("url") or ""
+            descriptor = {
+                "kind": "image",
+                "origin": item.get("origin", "unknown"),
+                "media_ref": ref,
+                "mime_type": item.get("image_url", {}).get("mime_type"),
+            }
+            allowed = allow_media_parts and should_forward_media_to_supervisor(descriptor)
+            if allowed:
+                parts.append(item)
+            else:
+                blocked.append({"origin": descriptor["origin"], "media_ref": ref, "kind": "image"})
+                parts.append({"type": "text", "text": f"[image from {descriptor['origin']}: {ref}]"})
+            continue
+
+        if isinstance(item, str):
+            parts.append({"type": "text", "text": item})
+            continue
+
+        parts.append(item)
+
+    return parts, blocked
+
+
+def _sanitize_content(content: Any, *, allow_media_parts: bool, role: str):
+    sanitized_parts, blocked_items = _normalize_content_parts(content, allow_media_parts)
+
+    for entry in blocked_items:
+        logger.info(
+            {
+                "message": "Blocked tool-generated media from supervisor payload",
+                "origin": entry.get("origin"),
+                "media_ref": entry.get("media_ref"),
+                "kind": entry.get("kind"),
+                "role": role,
+            }
+        )
+
+    if role == "tool":
+        # Tool messages are serialized to plain text for the supervisor to avoid
+        # accidental image_url payloads. Media stubs are left as text markers.
+        text_parts = []
+        for part in sanitized_parts:
+            if isinstance(part, dict) and part.get("type") == "text":
+                text_parts.append(part.get("text", ""))
+            elif isinstance(part, str):
+                text_parts.append(part)
+            else:
+                text_parts.append(json.dumps(part))
+
+        return "\n".join([p for p in text_parts if p is not None]), blocked_items
+
+    normalized_parts: List[Dict[str, Any]] = []
+    for part in sanitized_parts:
+        if isinstance(part, str):
+            normalized_parts.append({"type": "text", "text": part})
+        elif isinstance(part, dict) and "type" in part:
+            normalized_parts.append(part)
+        else:
+            normalized_parts.append({"type": "text", "text": json.dumps(part)})
+
+    if len(normalized_parts) == 1 and normalized_parts[0].get("type") == "text":
+        return normalized_parts[0]["text"], blocked_items
+
+    return normalized_parts, blocked_items
+
+
 def convert_langgraph_messages_to_openai(messages: List) -> List[Dict[str, Any]]:
     """Convert LangGraph message objects to OpenAI API format.
-    
-    Args:
-        messages: List of LangGraph message objects
-        
-    Returns:
-        List of dictionaries in OpenAI API format
+
+    Pipeline summary:
+    tool result → ToolMessage content → convert_langgraph_messages_to_openai →
+    supervisor request. This function is the hard gate that strips any media
+    originating from internal generators (flux-service / video-service) so the
+    supervisor never receives tool outputs as image parts.
     """
     openai_messages = []
-    
+
     for msg in messages:
         if isinstance(msg, HumanMessage):
+            sanitized_content, _ = _sanitize_content(msg.content, allow_media_parts=True, role="user")
             openai_messages.append({
                 "role": "user",
-                "content": msg.content
+                "content": sanitized_content
             })
         elif isinstance(msg, SystemMessage):
+            sanitized_content, _ = _sanitize_content(msg.content, allow_media_parts=False, role="system")
             openai_messages.append({
                 "role": "system",
-                "content": msg.content
+                "content": sanitized_content
             })
         elif isinstance(msg, AIMessage):
+            sanitized_content, _ = _sanitize_content(msg.content or "", allow_media_parts=True, role="assistant")
             openai_msg = {
                 "role": "assistant",
-                "content": msg.content or ""
+                "content": sanitized_content or "",
             }
             if hasattr(msg, 'tool_calls') and msg.tool_calls:
                 openai_msg["tool_calls"] = []
@@ -184,10 +299,11 @@ def convert_langgraph_messages_to_openai(messages: List) -> List[Dict[str, Any]]
                     })
             openai_messages.append(openai_msg)
         elif isinstance(msg, ToolMessage):
+            sanitized_content, _ = _sanitize_content(msg.content, allow_media_parts=False, role="tool")
             openai_messages.append({
                 "role": "tool",
-                "content": msg.content,
+                "content": sanitized_content,
                 "tool_call_id": msg.tool_call_id
             })
-    
+
     return openai_messages

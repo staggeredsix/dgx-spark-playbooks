@@ -28,6 +28,12 @@ from mcp.server.fastmcp import FastMCP
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from config import ConfigManager  # noqa: E402
+from utils_media import (  # noqa: E402
+    build_generated_media_reference,
+    build_media_descriptor,
+    ensure_data_uri,
+    persist_generated_data_uri,
+)
 
 
 mcp = FastMCP("Wan2.2 Video Generation")
@@ -69,15 +75,48 @@ async def generate_video(prompt: str, hf_api_key: Optional[str] = None):
     if not video_markdown:
         raise RuntimeError("WAN service did not return a video payload.")
 
-    return {
+    media: list[dict] = []
+    stored_video_url = None
+    descriptor = None
+
+    raw_video = payload.get("video_base64") or payload.get("video")
+    if raw_video:
+        normalized_video = ensure_data_uri(raw_video, fallback_mime="video/mp4") or raw_video
+        stored_video_url, descriptor = persist_generated_data_uri(
+            normalized_video,
+            prefix="wan-video",
+            origin="video-service",
+            kind="video",
+            mime_type="video/mp4",
+        )
+
+    if not stored_video_url:
+        stored_video_url = payload.get("video_url")
+
+    if stored_video_url and descriptor is None:
+        descriptor = build_media_descriptor(
+            kind="video",
+            origin="video-service",
+            media_ref=build_generated_media_reference(stored_video_url, "video-service", "video"),
+            mime_type="video/mp4",
+        )
+
+    if descriptor:
+        media.append(descriptor)
+
+    result = {
         "request_id": payload.get("request_id", request_id),
         "video_markdown": video_markdown,
-        "video_base64": payload.get("video_base64") or payload.get("video"),
-        "video_url": payload.get("video_url"),
+        "video_url": stored_video_url or payload.get("video_url"),
         "video_filename": payload.get("video_filename"),
         "model": payload.get("model"),
         "provider": payload.get("provider"),
     }
+
+    if media:
+        result["media"] = media
+
+    return result
 
 
 if __name__ == "__main__":

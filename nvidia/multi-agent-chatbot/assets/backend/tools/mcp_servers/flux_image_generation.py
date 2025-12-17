@@ -29,6 +29,12 @@ from pydantic import BaseModel, Field
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from config import ConfigManager  # noqa: E402
+from utils_media import (  # noqa: E402
+    build_generated_media_reference,
+    build_media_descriptor,
+    ensure_data_uri,
+    persist_generated_data_uri,
+)
 
 
 mcp = FastMCP("FLUX Image Generation")
@@ -108,20 +114,53 @@ async def generate_image(
 
     image_markdown = payload.get("image_markdown")
     image_url = payload.get("image_url")
+    media: list[dict] = []
+
+    stored_image_url = None
+    descriptor = None
+
+    raw_image = payload.get("image_base64") or payload.get("image")
+    if raw_image:
+        normalized_image = ensure_data_uri(raw_image, fallback_mime="image/png") or raw_image
+        stored_image_url, descriptor = persist_generated_data_uri(
+            normalized_image,
+            prefix="flux-image",
+            origin="flux-service",
+            kind="image",
+            mime_type="image/png",
+        )
+
+    if not stored_image_url:
+        stored_image_url = image_url
+
+    if stored_image_url and descriptor is None:
+        descriptor = build_media_descriptor(
+            kind="image",
+            origin="flux-service",
+            media_ref=build_generated_media_reference(stored_image_url, "flux-service", "image"),
+            mime_type="image/png",
+        )
+
+    if descriptor:
+        media.append(descriptor)
     if not image_markdown and image_url:
         image_markdown = f"![FLUX generated image]({image_url})"
 
     if not image_markdown:
         raise RuntimeError("FLUX service did not return an image payload.")
 
-    return {
+    result = {
         "request_id": request_id,
         "image_markdown": image_markdown,
-        "image_base64": payload.get("image_base64") or payload.get("image"),
-        "image_url": image_url or payload.get("image"),
+        "image_url": stored_image_url or image_url or payload.get("image"),
         "model": payload.get("model"),
         "provider": payload.get("provider"),
     }
+
+    if media:
+        result["media"] = media
+
+    return result
 
 
 if __name__ == "__main__":
