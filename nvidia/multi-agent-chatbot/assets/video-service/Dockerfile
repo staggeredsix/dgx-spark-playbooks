@@ -47,6 +47,24 @@ RUN pip install --upgrade pip && \
         "imageio[ffmpeg]" && \
     pip install --no-cache-dir --no-build-isolation --no-deps flash-attn
 
+# --- Final dependency override to avoid WAN pins downgrading transformers ---
+RUN python -m pip uninstall -y transformers peft accelerate || true && \
+    python -m pip install --no-cache-dir --upgrade --force-reinstall \
+      "transformers==4.57.3" \
+      "peft>=0.12.0" \
+      "accelerate>=0.30.0" \
+      "safetensors>=0.4.3"
+
+# Build-time sanity check (must pass)
+RUN python - <<'PY'
+import transformers
+print("transformers", transformers.__version__, transformers.__file__)
+import transformers.modeling_layers as ml
+print("modeling_layers OK", ml)
+import peft
+print("peft", peft.__version__, peft.__file__)
+PY
+
 RUN python - <<'PY'
 import os
 import torch

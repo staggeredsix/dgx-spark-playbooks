@@ -92,13 +92,15 @@ def _validate_environment() -> None:
         raise SystemExit(1) from exc
 
     try:
-        transformers = importlib.import_module("transformers")
+        import transformers
+
+        logger.info("transformers=%s path=%s", transformers.__version__, transformers.__file__)
+
         accelerate = importlib.import_module("accelerate")
         peft = importlib.import_module("peft")
         safetensors = importlib.import_module("safetensors")
         logger.info(
-            "transformers=%s accelerate=%s peft=%s safetensors=%s",
-            transformers.__version__,
+            "accelerate=%s peft=%s safetensors=%s",
             accelerate.__version__,
             peft.__version__,
             safetensors.__version__,
