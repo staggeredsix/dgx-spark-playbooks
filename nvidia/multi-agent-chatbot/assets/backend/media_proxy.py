@@ -41,25 +41,16 @@ async def _proxy_stream(upstream_url: str, request: Request, *, identifier: str)
 
     try:
         async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
-            async with client.stream("GET", upstream_url, headers=headers) as upstream_response:
-                logger.info(
-                    {
-                        "message": "Proxying media request",
-                        "upstream_url": upstream_url,
-                        "status_code": upstream_response.status_code,
-                        "identifier": identifier,
-                    }
-                )
-
-                if upstream_response.status_code in {404}:
+            async with client.stream("GET", upstream_url, headers=headers) as probe_response:
+                if probe_response.status_code == 404:
                     raise HTTPException(status_code=404, detail="Media not found")
 
-                if upstream_response.status_code not in {200, 206}:  # 206 for Range responses
+                if probe_response.status_code not in (200, 206):  # 206 for Range responses
                     logger.error(
                         {
                             "message": "Upstream media service error",
                             "upstream_url": upstream_url,
-                            "status_code": upstream_response.status_code,
+                            "status_code": probe_response.status_code,
                             "identifier": identifier,
                         }
                     )
@@ -67,15 +58,11 @@ async def _proxy_stream(upstream_url: str, request: Request, *, identifier: str)
 
                 response_headers = {}
                 for header_name in ("content-type", "content-length", "content-range", "accept-ranges"):
-                    header_value = upstream_response.headers.get(header_name)
+                    header_value = probe_response.headers.get(header_name)
                     if header_value:
                         response_headers[header_name.title()] = header_value
 
-                return StreamingResponse(
-                    upstream_response.aiter_bytes(),
-                    status_code=upstream_response.status_code,
-                    headers=response_headers,
-                )
+                status_code = probe_response.status_code
     except HTTPException:
         raise
     except httpx.RequestError as exc:
@@ -88,6 +75,50 @@ async def _proxy_stream(upstream_url: str, request: Request, *, identifier: str)
             }
         )
         raise HTTPException(status_code=502, detail="Upstream media service unavailable") from exc
+
+    async def body_iter():
+        try:
+            async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
+                async with client.stream("GET", upstream_url, headers=headers) as upstream_response:
+                    logger.info(
+                        {
+                            "message": "Proxying media request",
+                            "upstream_url": upstream_url,
+                            "status_code": upstream_response.status_code,
+                            "identifier": identifier,
+                        }
+                    )
+
+                    if upstream_response.status_code == 404:
+                        raise HTTPException(status_code=404, detail="Media not found")
+
+                    if upstream_response.status_code not in (200, 206):
+                        logger.error(
+                            {
+                                "message": "Upstream media service error",
+                                "upstream_url": upstream_url,
+                                "status_code": upstream_response.status_code,
+                                "identifier": identifier,
+                            }
+                        )
+                        raise HTTPException(status_code=502, detail="Unable to fetch media from upstream service")
+
+                    async for chunk in upstream_response.aiter_bytes():
+                        yield chunk
+        except HTTPException:
+            raise
+        except httpx.RequestError as exc:
+            logger.error(
+                {
+                    "message": "Media proxy upstream request failed",
+                    "upstream_url": upstream_url,
+                    "identifier": identifier,
+                    "error": str(exc),
+                }
+            )
+            raise HTTPException(status_code=502, detail="Upstream media service unavailable") from exc
+
+    return StreamingResponse(body_iter(), status_code=status_code, headers=response_headers)
 
 
 @media_router.get("/media/flux/{path:path}")
