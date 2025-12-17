@@ -223,6 +223,18 @@ def _rewrite_internal_media_links(text: str) -> tuple[str, bool]:
         path = match.group("path")
         return f"{WAN_PROXY_PREFIX}/{path.lstrip('/')}"
 
+    def _replace_relative_flux(match: re.Match[str]) -> str:
+        nonlocal changed
+        changed = True
+        path = match.group("path")
+        return f"{FLUX_PROXY_PREFIX}/images/{path.lstrip('/')}"
+
+    def _replace_relative_wan(match: re.Match[str]) -> str:
+        nonlocal changed
+        changed = True
+        path = match.group("path")
+        return f"{WAN_PROXY_PREFIX}/videos/{path.lstrip('/')}"
+
     sanitized = re.sub(
         r"https?://flux-service(?::\d+)?/(?P<path>[^\s'\")]+)",
         _replace_flux,
@@ -233,6 +245,20 @@ def _rewrite_internal_media_links(text: str) -> tuple[str, bool]:
     sanitized = re.sub(
         r"https?://(?:video-service|wan-service)(?::\d+)?/(?P<path>[^\s'\")]+)",
         _replace_wan,
+        sanitized,
+        flags=re.IGNORECASE,
+    )
+
+    sanitized = re.sub(
+        r"/images/(?P<path>[^\s'\")]+)",
+        _replace_relative_flux,
+        sanitized,
+        flags=re.IGNORECASE,
+    )
+
+    sanitized = re.sub(
+        r"/videos/(?P<path>[^\s'\")]+)",
+        _replace_relative_wan,
         sanitized,
         flags=re.IGNORECASE,
     )

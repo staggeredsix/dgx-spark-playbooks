@@ -356,8 +356,9 @@ class ChatAgent:
                     original_image_url = tool_result.get("image_url") or tool_result.get("image")
 
                     if raw_image:
-                        if isinstance(raw_image, str) and raw_image.startswith("data:"):
-                            normalized_image = ensure_data_uri(raw_image, fallback_mime="image/png") or raw_image
+                        image_payload = str(raw_image)
+                        normalized_image = ensure_data_uri(image_payload, fallback_mime="image/png")
+                        if normalized_image:
                             stored_image_url, descriptor = await persist_generated_media(
                                 chat_id=chat_id,
                                 kind="image",
@@ -371,7 +372,7 @@ class ChatAgent:
                                 kind="image",
                                 origin=tool_origin,
                                 mime_type="image/png",
-                                remote_url=str(raw_image),
+                                remote_url=image_payload,
                             )
                         tool_result.pop("image_base64", None)
 
@@ -435,14 +436,25 @@ class ChatAgent:
                     original_video_url = tool_result.get("video_url") or tool_result.get("video")
 
                     if video_base64:
-                        normalized_video = ensure_data_uri(video_base64, fallback_mime="video/mp4") or video_base64
-                        stored_video_url, descriptor = await persist_generated_media(
-                            chat_id=chat_id,
-                            kind="video",
-                            origin=tool_origin,
-                            mime_type="video/mp4",
-                            data_uri=normalized_video,
-                        )
+                        video_payload = str(video_base64)
+                        normalized_video = ensure_data_uri(video_payload, fallback_mime="video/mp4")
+
+                        if normalized_video:
+                            stored_video_url, descriptor = await persist_generated_media(
+                                chat_id=chat_id,
+                                kind="video",
+                                origin=tool_origin,
+                                mime_type="video/mp4",
+                                data_uri=normalized_video,
+                            )
+                        else:
+                            stored_video_url, descriptor = await persist_generated_media(
+                                chat_id=chat_id,
+                                kind="video",
+                                origin=tool_origin,
+                                mime_type="video/mp4",
+                                remote_url=video_payload,
+                            )
 
                         if descriptor and descriptor not in media_descriptors:
                             media_descriptors.append(descriptor)
@@ -821,6 +833,12 @@ class ChatAgent:
     def _rewrite_media_url_for_ui(self, url: Optional[str]) -> Optional[str]:
         if not url:
             return None
+
+        if url.startswith("/images/"):
+            return f"/media/flux{url}"
+
+        if url.startswith("/videos/"):
+            return f"/media/wan{url}"
 
         if url.startswith("/media/flux") or url.startswith("/media/wan"):
             return url
