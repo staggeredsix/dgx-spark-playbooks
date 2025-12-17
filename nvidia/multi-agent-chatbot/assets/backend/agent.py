@@ -331,7 +331,9 @@ class ChatAgent:
                             tool_args[media_key] = filtered_media
                         logger.info(f'Executing tool {tool_call["name"]} with args: {tool_args}')
                         tool_result = await self.tools_by_name[tool_call["name"]].ainvoke(tool_args)
-                        if tool_result is not None:
+                        if tool_result is not None and not (
+                            isinstance(tool_result, dict) and tool_result.get("status") == "skipped"
+                        ):
                             state["process_image_used"] = True
                 else:
                     tool_result = await self.tools_by_name[tool_call["name"]].ainvoke(tool_call["args"])
@@ -509,18 +511,19 @@ class ChatAgent:
             state.pop("media_final_content", None)
 
         state["iterations"] = state.get("iterations", 0) + 1
+        current_iterations = state["iterations"]
 
         logger.debug({
             "message": "GRAPH: EXITING NODE - action/tool_node",
             "chat_id": state.get("chat_id"),
-            "iterations": state.get("iterations"),
+            "iterations": current_iterations,
             "tools_executed": len(outputs),
             "next_step": "→ returning to generate"
         })
         await self.stream_callback({'type': 'node_end', 'data': 'tool_node'})
         return {
             "messages": messages + outputs,
-            "iterations": state.get("iterations"),
+            "iterations": current_iterations,
             "skip_llm_after_media": state.get("skip_llm_after_media"),
             "media_final_content": state.get("media_final_content"),
         }
@@ -552,10 +555,25 @@ class ChatAgent:
         })
         await self.stream_callback({'type': 'node_start', 'data': 'generate'})
 
+        raw_media_items = state.get("image_data")
         external_media, media_debug = self._classify_media_items(
-            state.get("image_data"), chat_id=state.get("chat_id"), context="generate"
+            raw_media_items, chat_id=state.get("chat_id"), context="generate"
         )
-        external_media = [item for item in external_media if item]
+        external_media = self._filter_external_media(
+            external_media, chat_id=state.get("chat_id"), context="generate"
+        )
+
+        logger.info(
+            {
+                "message": "Generate node media summary",
+                "chat_id": state.get("chat_id"),
+                "context": "generate",
+                "normalized_media_count": media_debug.get("normalized_count"),
+                "external_media_count": len(external_media),
+                "external_examples": media_debug.get("external_examples"),
+                "internal_examples": media_debug.get("internal_examples"),
+            }
+        )
 
         supports_tools = bool(self.openai_tools)
         has_tools = supports_tools and len(self.openai_tools) > 0
@@ -961,6 +979,66 @@ class ChatAgent:
 
         return external_media, debug_payload
 
+    def _filter_external_media(
+        self, media_items: List[str | dict] | None, *, chat_id: Optional[str] = None, context: str = ""
+    ) -> List[str | dict]:
+        filtered_external_media: List[str | dict] = []
+        excluded_media: List[dict[str, Any]] = []
+
+        for item in media_items or []:
+            reason = None
+            if item is None:
+                reason = "None media item"
+            elif isinstance(item, str):
+                if not item.strip():
+                    reason = "Empty media string"
+                elif self._is_internal_media_reference(item):
+                    reason = "Internal media string filtered"
+            elif isinstance(item, dict):
+                url_candidates: List[str] = []
+                for key in ("url", "image_url", "video_url", "data", "image", "video"):
+                    value = item.get(key)
+                    if isinstance(value, str) and value.strip():
+                        url_candidates.append(value)
+                    elif isinstance(value, list):
+                        url_candidates.extend([v for v in value if isinstance(v, str) and v.strip()])
+
+                if not url_candidates:
+                    reason = "Dict without media content"
+                else:
+                    non_internal = [candidate for candidate in url_candidates if not self._is_internal_media_reference(candidate)]
+                    if not non_internal:
+                        reason = "Dict contained only internal media"
+
+            if reason:
+                excluded_media.append({"item": item, "reason": reason})
+                continue
+
+            filtered_external_media.append(item)
+
+        if excluded_media:
+            logger.info(
+                {
+                    "message": "Excluded media items while preparing external media",
+                    "chat_id": chat_id,
+                    "context": context,
+                    "excluded_count": len(excluded_media),
+                    "reasons": [entry["reason"] for entry in excluded_media[:5]],
+                }
+            )
+
+        logger.info(
+            {
+                "message": "External media filter summary",
+                "chat_id": chat_id,
+                "context": context,
+                "remaining_media_count": len(filtered_external_media),
+                "remaining_examples": filtered_external_media[:3],
+            }
+        )
+
+        return filtered_external_media
+
     def _detect_requested_media_tool(self, messages: List[AnyMessage]) -> ToolCall | None:
         """Infer whether the user asked for media generation and force a tool call.
 
@@ -1132,7 +1210,21 @@ class ChatAgent:
                 normalized_media, chat_id=chat_id, context="query"
             )
 
-            external_media = [item for item in external_media if item]
+            external_media = self._filter_external_media(
+                external_media, chat_id=chat_id, context="query"
+            )
+
+            logger.info(
+                {
+                    "message": "Query media summary",
+                    "chat_id": chat_id,
+                    "context": "query",
+                    "normalized_media_count": media_debug.get("normalized_count"),
+                    "external_media_count": len(external_media),
+                    "external_examples": media_debug.get("external_examples"),
+                    "internal_examples": media_debug.get("internal_examples"),
+                }
+            )
 
             if external_media:
                 image_context = (
