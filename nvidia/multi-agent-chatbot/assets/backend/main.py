@@ -471,7 +471,7 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: str):
     """
     logger.debug(f"WebSocket connection attempt for chat_id: {chat_id}")
 
-    async def stream_query(new_message: str, image_id: str | None) -> None:
+    async def stream_query(new_message: str, image_id: str | None, client_request_id: str | None) -> None:
         """Run a query and stream events back to the client."""
         image_data = None
         if image_id:
@@ -496,7 +496,12 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: str):
         merged_media = merge_media_payloads(image_data, remote_media)
 
         try:
-            async for event in agent.query(query_text=new_message, chat_id=chat_id, image_data=merged_media):
+            async for event in agent.query(
+                query_text=new_message,
+                chat_id=chat_id,
+                image_data=merged_media,
+                client_request_id=client_request_id,
+            ):
                 await websocket.send_json(_scrub_ui_payload(event))
         except asyncio.CancelledError:
             logger.debug(f"Streaming cancelled for chat {chat_id}")
@@ -541,6 +546,7 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: str):
                 client_message = json.loads(data)
                 new_message = client_message.get("message")
                 image_id = client_message.get("image_id") or client_message.get("media_id")
+                client_request_id = client_message.get("client_request_id")
 
                 # Handle explicit stop requests to cancel in-flight generations
                 if client_message.get("type") == "stop":
@@ -558,7 +564,16 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: str):
                     with contextlib.suppress(asyncio.CancelledError):
                         await active_task
 
-                active_task = asyncio.create_task(stream_query(new_message, image_id))
+                request_id = client_request_id or str(uuid.uuid4())
+                logger.info(
+                    {
+                        "message": "Starting streaming task",
+                        "chat_id": chat_id,
+                        "client_request_id": request_id,
+                    }
+                )
+
+                active_task = asyncio.create_task(stream_query(new_message, image_id, request_id))
                 receive_task = asyncio.create_task(websocket.receive_text())
 
             if active_task and active_task in done:

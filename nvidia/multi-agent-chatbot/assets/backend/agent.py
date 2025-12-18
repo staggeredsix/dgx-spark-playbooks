@@ -21,6 +21,7 @@ import contextlib
 import json
 import os
 import re
+import uuid
 from typing import AsyncIterator, List, Dict, Any, TypedDict, Optional, Callable, Awaitable
 from urllib.parse import urlparse
 
@@ -298,21 +299,86 @@ class ChatAgent:
         media_payload_for_model: Dict[str, Any] | None = None
         chat_id = state.get("chat_id")
 
-        for i, tool_call in enumerate(last_message.tool_calls):
-            logger.debug(f'Executing tool {i+1}/{len(last_message.tool_calls)}: {tool_call["name"]} with args: {tool_call["args"]}')
-            await self.stream_callback({'type': 'tool_start', 'data': tool_call["name"]})
+        raw_tool_calls = getattr(last_message, "tool_calls", []) or []
+        deduped_tool_calls = []
+        seen_tool_keys = set()
+        skipped_duplicate_calls = 0
+
+        for tool_call in raw_tool_calls:
+            tool_name = tool_call.get("name") if isinstance(tool_call, dict) else getattr(tool_call, "name", None)
+            tool_args = tool_call.get("args") if isinstance(tool_call, dict) else getattr(tool_call, "args", {})
+            args_key = json.dumps(tool_args or {}, sort_keys=True)
+            key = (tool_name, args_key)
+            if key in seen_tool_keys:
+                skipped_duplicate_calls += 1
+                logger.info(
+                    {
+                        "message": "Skipping duplicate tool call",
+                        "chat_id": chat_id,
+                        "tool": tool_name,
+                        "args_key": args_key,
+                    }
+                )
+                continue
+            seen_tool_keys.add(key)
+            deduped_tool_calls.append(tool_call)
+
+        if raw_tool_calls:
+            logger.info(
+                {
+                    "message": "Tool call deduplication",
+                    "chat_id": chat_id,
+                    "original_count": len(raw_tool_calls),
+                    "deduped_count": len(deduped_tool_calls),
+                    "tool_call_deduped_count": skipped_duplicate_calls,
+                }
+            )
+
+        for i, tool_call in enumerate(deduped_tool_calls):
+            tool_name = tool_call.get("name") if isinstance(tool_call, dict) else getattr(tool_call, "name", None)
+            tool_args_payload = (
+                tool_call.get("args") if isinstance(tool_call, dict) else getattr(tool_call, "args", {})
+            ) or {}
+            tool_call_id = tool_call.get("id") if isinstance(tool_call, dict) else getattr(tool_call, "id", None)
+            logger.debug(f'Executing tool {i+1}/{len(deduped_tool_calls)}: {tool_name} with args: {tool_args_payload}')
+            await self.stream_callback({'type': 'tool_start', 'data': tool_name})
+
+            if not tool_name:
+                logger.error(
+                    {
+                        "message": "Tool call missing name; skipping execution",
+                        "chat_id": chat_id,
+                        "tool_args": tool_args_payload,
+                    }
+                )
+                content = "Tool call missing name"
+                outputs.append(
+                    ToolMessage(
+                        content=content,
+                        name="unknown_tool",
+                        tool_call_id=tool_call_id,
+                    )
+                )
+                await self.stream_callback({'type': 'tool_end', 'data': tool_name})
+                continue
 
             try:
                 tool_origin = (
-                    "flux-service" if tool_call["name"] == "generate_image" else "video-service"
-                    if tool_call["name"] == "generate_video" else "unknown"
+                    "flux-service" if tool_name == "generate_image" else "video-service"
+                    if tool_name == "generate_video" else "unknown"
                 )
-                tool_args = tool_call["args"].copy()
-                if tool_call["name"] in {"generate_image", "generate_video"} and chat_id:
+                tool_args = tool_args_payload.copy()
+                if tool_name in {"generate_image", "generate_video"}:
                     tool_args.setdefault("chat_id", chat_id)
+                    client_request_id = (
+                        tool_args.get("client_request_id")
+                        or state.get("client_request_id")
+                        or str(uuid.uuid4())
+                    )
+                    tool_args["client_request_id"] = client_request_id
 
-                if tool_call["name"] in {"explain_image", "explain_video"}:
-                    media_key = "image" if tool_call["name"] == "explain_image" else "video_frames"
+                if tool_name in {"explain_image", "explain_video"}:
+                    media_key = "image" if tool_name == "explain_image" else "video_frames"
                     merged_media = merge_media_payloads(tool_args.get(media_key), state.get("image_data"))
                     filtered_media = [
                         item for item in merged_media if not self._is_internal_media_reference(item)
@@ -326,7 +392,7 @@ class ChatAgent:
                         logger.info(
                             {
                                 "message": "Bypassed vision tool for generated media",
-                                "tool": tool_call["name"],
+                                "tool": tool_name,
                                 "chat_id": state.get("chat_id"),
                             }
                         )
@@ -338,14 +404,14 @@ class ChatAgent:
                     else:
                         if filtered_media:
                             tool_args[media_key] = filtered_media
-                        logger.info(f'Executing tool {tool_call["name"]} with args: {tool_args}')
-                        tool_result = await self.tools_by_name[tool_call["name"]].ainvoke(tool_args)
+                        logger.info(f'Executing tool {tool_name} with args: {tool_args}')
+                        tool_result = await self.tools_by_name[tool_name].ainvoke(tool_args)
                         if tool_result is not None and not (
                             isinstance(tool_result, dict) and tool_result.get("status") == "skipped"
                         ):
                             state["process_image_used"] = True
                 else:
-                    tool_result = await self.tools_by_name[tool_call["name"]].ainvoke(tool_args)
+                    tool_result = await self.tools_by_name[tool_name].ainvoke(tool_args)
                 payload_for_model = tool_result
 
                 if isinstance(tool_result, dict):
@@ -545,7 +611,7 @@ class ChatAgent:
                         if isinstance(value, str) and value.startswith("data:"):
                             payload_for_model.pop(key, None)
 
-                if "code" in tool_call["name"]:
+                if tool_name and "code" in tool_name:
                     content = str(tool_result)
                 elif isinstance(tool_result, str):
                     content = tool_result
@@ -555,16 +621,16 @@ class ChatAgent:
                     streamed = content if isinstance(content, str) else json.dumps(content)
                     await self.stream_callback({"type": "tool_token", "data": streamed})
             except Exception as e:
-                logger.error(f'Error executing tool {tool_call["name"]}: {str(e)}', exc_info=True)
-                content = f"Error executing tool '{tool_call['name']}': {str(e)}"
-            
-            await self.stream_callback({'type': 'tool_end', 'data': tool_call["name"]})
+                logger.error(f'Error executing tool {tool_name}: {str(e)}', exc_info=True)
+                content = f"Error executing tool '{tool_name}': {str(e)}"
+
+            await self.stream_callback({'type': 'tool_end', 'data': tool_name})
 
             outputs.append(
                 ToolMessage(
                     content=content,
-                    name=tool_call["name"],
-                    tool_call_id=tool_call["id"],
+                    name=tool_name,
+                    tool_call_id=tool_call_id,
                 )
             )
 
@@ -720,23 +786,42 @@ class ChatAgent:
 
         llm_output_buffer, tool_calls_buffer = await self._stream_response(stream, self.stream_callback)
         tool_calls = self._format_tool_calls(tool_calls_buffer)
+        has_generation_tool = any(
+            (
+                getattr(tool_call, "name", None)
+                if not isinstance(tool_call, dict)
+                else tool_call.get("name")
+            )
+            in {"generate_image", "generate_video"}
+            for tool_call in tool_calls
+        )
 
-        if not tool_calls:
+        inferred_media_tool = None
+        if not has_generation_tool:
             inferred_media_tool = self._detect_requested_media_tool(state.get("messages", []))
-            if inferred_media_tool:
-                forced_tool_name = (
-                    inferred_media_tool.get("name")
-                    if isinstance(inferred_media_tool, dict)
-                    else getattr(inferred_media_tool, "name", "unknown")
-                ) or "unknown"
-                tool_calls = [inferred_media_tool]
-                logger.info(
-                    {
-                        "message": "No tool calls returned; forcing media generation tool execution",
-                        "chat_id": state.get("chat_id"),
-                        "forced_tool": forced_tool_name,
-                    }
-                )
+
+        if not tool_calls and inferred_media_tool:
+            forced_tool_name = (
+                inferred_media_tool.get("name")
+                if isinstance(inferred_media_tool, dict)
+                else getattr(inferred_media_tool, "name", "unknown")
+            ) or "unknown"
+            tool_calls = [inferred_media_tool]
+            logger.info(
+                {
+                    "message": "No tool calls returned; forcing media generation tool execution",
+                    "chat_id": state.get("chat_id"),
+                    "forced_tool": forced_tool_name,
+                }
+            )
+        elif inferred_media_tool and has_generation_tool:
+            logger.info(
+                {
+                    "message": "Skipping inferred media tool because generation call already present",
+                    "chat_id": state.get("chat_id"),
+                    "forced_tool": getattr(inferred_media_tool, "name", None),
+                }
+            )
         raw_output = "".join(llm_output_buffer)
 
         logger.info({
@@ -1246,6 +1331,7 @@ class ChatAgent:
         query_text: str,
         chat_id: str,
         image_data: str | List[str] = None,
+        client_request_id: str | None = None,
         *,
         persist: bool = True,
     ) -> AsyncIterator[Dict[str, Any]]:
@@ -1340,7 +1426,8 @@ class ChatAgent:
                 "chat_id": chat_id,
                 "messages": messages_to_process,
                 "image_data": normalized_media if normalized_media else None,
-                "process_image_used": False
+                "process_image_used": False,
+                "client_request_id": client_request_id,
             }
             
 
