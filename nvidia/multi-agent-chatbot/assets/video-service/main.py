@@ -50,12 +50,42 @@ WAN_TASK = os.getenv("WAN_TASK", _variant_cfg["task"])
 WAN_SIZE = os.getenv("WAN_SIZE", _variant_cfg["size"])
 WAN_PRECACHE = os.getenv("WAN_PRECACHE", "true").lower() == "true"
 WAN_TIMEOUT_S = int(os.getenv("WAN_TIMEOUT_S", "1800"))
+DEFAULT_WAN_CACHE_DIR = Path("/tmp/wan_cache")
+WAN_CACHE_DIR = Path(os.getenv("WAN_CACHE_DIR", str(DEFAULT_WAN_CACHE_DIR)))
 MAX_PROMPT_LENGTH = 2000
 ENABLE_VOICE_TO_VIDEO = os.getenv("ENABLE_VOICE_TO_VIDEO", "0") == "1"
 
 DEFAULT_HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
 
 app = FastAPI(title="Wan2.2 Video Service", version="1.0")
+
+
+def _prepare_cache_dir() -> Path:
+    """Return a writable cache directory, falling back to /tmp/wan_cache."""
+
+    candidates = [WAN_CACHE_DIR]
+    if WAN_CACHE_DIR != DEFAULT_WAN_CACHE_DIR:
+        candidates.append(DEFAULT_WAN_CACHE_DIR)
+
+    for candidate in candidates:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            test_file = candidate / ".wan_cache_write_test"
+            test_file.write_text("ok", encoding="utf-8")
+            test_file.unlink(missing_ok=True)
+            if candidate != WAN_CACHE_DIR:
+                logger.warning("WAN_CACHE_DIR %s is not writable; falling back to %s", WAN_CACHE_DIR, candidate)
+            return candidate
+        except Exception as exc:  # pragma: no cover - startup diagnostics
+            logger.warning("Cache directory %s is not writable: %s", candidate, exc)
+
+    raise RuntimeError("No writable Wan2.2 cache directory available")
+
+
+WAN_CACHE_PATH = _prepare_cache_dir()
+os.environ.setdefault("HF_HOME", str(WAN_CACHE_PATH))
+os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(WAN_CACHE_PATH))
+logger.info("Wan2.2 cache directory set to %s", WAN_CACHE_PATH)
 
 
 def _validate_environment() -> None:
@@ -181,6 +211,7 @@ def _maybe_precache_model(token: Optional[str]) -> Optional[str]:
             repo_type="model",
             token=token,
             local_dir=WAN_CKPT_DIR,
+            cache_dir=str(WAN_CACHE_PATH),
         )
         logger.info("Cached Wan2.2 checkpoints at %s", WAN_CKPT_DIR)
         return WAN_CKPT_DIR
@@ -242,6 +273,7 @@ def _ensure_checkpoints_available(token: Optional[str]) -> None:
             repo_type="model",
             token=token,
             local_dir=WAN_CKPT_DIR,
+            cache_dir=str(WAN_CACHE_PATH),
         )
     except Exception as exc:
         logger.exception("Failed to download Wan2.2 checkpoints")
