@@ -363,12 +363,14 @@ class WANEngine:
             "max_area": max_area,
             "infer_frames": frame_num,
             "shift": 0,
-            "sample_solver": solver,
             "sampling_steps": sample_steps,
             "guide_scale": 4.5,
             "seed": -1,
             "offload_model": self._variant_options.get("offload_model", False),
         }
+
+        if solver is not None:
+            generate_kwargs["sample_solver"] = solver
 
         # Wan 2.2 text-to-video changed the generate signature to remove the
         # num_repeat argument. Preserve compatibility by only passing supported
