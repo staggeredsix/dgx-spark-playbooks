@@ -96,28 +96,18 @@ export default function SystemResourceMonitor() {
       {metrics && (
         <>
           <div className={styles.gpuList}>
-            <div className={styles.resourceTitle}>CPU &amp; DRAM utilization</div>
+            <div className={styles.resourceTitle}>CPU Pressure</div>
             <div className={styles.gpuCard}>
               <div className={styles.metricRow}>
                 <span className={styles.metricLabel}>CPU</span>
                 <ProgressBar percent={metrics.cpu.percent} />
                 <span className={styles.metricValue}>{formatValue(metrics.cpu.percent)}%</span>
               </div>
-
-              <div className={styles.metricRow}>
-                <span className={styles.metricLabel}>DRAM</span>
-                <ProgressBar percent={metrics.memory.percent} />
-                <span className={styles.metricValue}>{formatValue(metrics.memory.percent)}%</span>
-              </div>
-
-              <div className={styles.metricSubtext}>
-                {formatValue(metrics.memory.used_gb, 2)} / {formatValue(metrics.memory.total_gb, 2)} GB
-              </div>
             </div>
           </div>
 
           <div className={styles.gpuList}>
-            <div className={styles.resourceTitle}>GPU utilization</div>
+            <div className={styles.resourceTitle}>GPU Activity</div>
             {!hasGpu && <div className={styles.metricMuted}>No NVIDIA GPUs detected.</div>}
 
             {metrics.gpus.map((gpu) => (
@@ -132,16 +122,23 @@ export default function SystemResourceMonitor() {
                   <ProgressBar percent={gpu.utilization} />
                   <span className={styles.metricValue}>{formatValue(gpu.utilization)}%</span>
                 </div>
-
-                <div className={styles.metricRow}>
-                  <span className={styles.metricLabel}>Memory</span>
-                  <ProgressBar percent={gpu.memory_utilization} />
-                  <span className={styles.metricValue}>
-                    {formatValue(gpu.memory_used_gb, 2)} / {formatValue(gpu.memory_total_gb, 2)} GB
-                  </span>
-                </div>
               </div>
             ))}
+          </div>
+
+          <div className={styles.gpuList}>
+            <div className={styles.resourceTitle}>Cohesive Memory</div>
+            <div className={styles.gpuCard}>
+              <div className={styles.metricRow}>
+                <span className={styles.metricLabel}>DRAM</span>
+                <ProgressBar percent={metrics.memory.percent} />
+                <span className={styles.metricValue}>{formatValue(metrics.memory.percent)}%</span>
+              </div>
+
+              <div className={styles.metricSubtext}>
+                {formatValue(metrics.memory.used_gb, 2)} / {formatValue(metrics.memory.total_gb, 2)} GB shared
+              </div>
+            </div>
           </div>
 
           {metrics.timestamp && (
