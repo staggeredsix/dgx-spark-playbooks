@@ -58,8 +58,10 @@ class TavilyClient:
         env_key = os.getenv("TAVILY_API_KEY")
         env_endpoint = os.getenv("TAVILY_ENDPOINT")
 
-        self.api_key = env_key or settings.get("api_key")
-        self.enabled = bool(settings.get("enabled", False) or env_key)
+        config_key = settings.get("api_key")
+
+        self.api_key = env_key or config_key
+        self.enabled = bool(env_key or config_key or settings.get("enabled", False))
         self.endpoint = env_endpoint or self.DEFAULT_ENDPOINT
 
         logger.info(
@@ -67,7 +69,7 @@ class TavilyClient:
                 "message": "Loaded Tavily tool",
                 "endpoint": self.endpoint,
                 "api_key_present": bool(self.api_key),
-                "enabled_in_config": settings.get("enabled", False),
+                "enabled_effective": self.enabled,
             }
         )
 
@@ -129,10 +131,12 @@ class TavilyClient:
             "include_raw_content": include_raw_content,
         }
 
+        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else None
+
         last_exc: Exception | None = None
         for attempt in range(2):
             try:
-                response = self._client.post(self.endpoint, json=payload)
+                response = self._client.post(self.endpoint, json=payload, headers=headers)
                 if response.status_code in {429, 500, 502, 503, 504}:
                     raise httpx.HTTPStatusError("transient", request=response.request, response=response)
                 response.raise_for_status()
@@ -140,13 +144,27 @@ class TavilyClient:
                 return self._build_results(query, data, include_answer, include_raw_content)
             except httpx.HTTPStatusError as exc:  # noqa: BLE001
                 last_exc = exc
+                status_code = exc.response.status_code if exc.response else None
+                response_text = exc.response.text if exc.response else ""
+                if status_code in {401, 403}:
+                    logger.warning(
+                        {
+                            "message": "Tavily authentication failed",
+                            "status_code": status_code,
+                            "response_text": response_text,
+                        }
+                    )
                 if attempt < 1:
                     time.sleep(0.5)
                     continue
+                truncated_text = (response_text[:500] + "...") if len(response_text) > 500 else response_text
                 return {
                     "status": "error",
                     "reason": "http_error",
-                    "hint": f"Tavily responded with {exc.response.status_code if exc.response else 'unknown'}",
+                    "hint": f"Tavily responded with {status_code if status_code is not None else 'unknown'}",
+                    "status_code": status_code,
+                    "response_text": truncated_text,
+                    "endpoint": self.endpoint,
                 }
             except Exception as exc:  # noqa: BLE001
                 last_exc = exc
