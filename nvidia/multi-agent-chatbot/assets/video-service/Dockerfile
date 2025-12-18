@@ -14,6 +14,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     WAN_CACHE_DIR=/tmp/wan_cache \
     ENABLE_VOICE_TO_VIDEO=0
 
+ENV PYTHONPATH=${WAN_CODE_DIR}:${PYTHONPATH}
+
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ffmpeg \
