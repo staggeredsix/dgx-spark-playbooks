@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import importlib
+import inspect
 import logging
 import os
 import sys
@@ -356,18 +357,30 @@ class WANEngine:
             raise RuntimeError(f"Unsupported WAN size: {size}")
 
         output_path = Path(save_file)
-        video = self.pipeline.generate(
-            input_prompt=prompt,
-            num_repeat=1,
-            max_area=max_area,
-            infer_frames=frame_num,
-            shift=0,
-            sample_solver=solver,
-            sampling_steps=sample_steps,
-            guide_scale=4.5,
-            seed=-1,
-            offload_model=self._variant_options.get("offload_model", False),
-        )
+        generate_kwargs = {
+            "input_prompt": prompt,
+            "num_repeat": 1,
+            "max_area": max_area,
+            "infer_frames": frame_num,
+            "shift": 0,
+            "sample_solver": solver,
+            "sampling_steps": sample_steps,
+            "guide_scale": 4.5,
+            "seed": -1,
+            "offload_model": self._variant_options.get("offload_model", False),
+        }
+
+        # Wan 2.2 text-to-video changed the generate signature to remove the
+        # num_repeat argument. Preserve compatibility by only passing supported
+        # parameters.
+        supported_params = inspect.signature(self.pipeline.generate).parameters
+        generate_kwargs = {
+            key: value
+            for key, value in generate_kwargs.items()
+            if key in supported_params
+        }
+
+        video = self.pipeline.generate(**generate_kwargs)
         self._save_video(video, output_path)
         return output_path
 
