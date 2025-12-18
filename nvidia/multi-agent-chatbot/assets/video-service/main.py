@@ -268,11 +268,13 @@ class WANEngine:
         if not hasattr(self._configs_module, "WAN_CONFIGS"):
             raise RuntimeError("WAN configuration module is missing WAN_CONFIGS")
 
-        cfg_fn = self._configs_module.WAN_CONFIGS.get(task)
-        if cfg_fn is None:
+        cfg_entry = self._configs_module.WAN_CONFIGS.get(task)
+        if cfg_entry is None:
             raise RuntimeError(f"Unsupported WAN task: {task}")
 
-        cfg = cfg_fn()
+        cfg = cfg_entry() if callable(cfg_entry) else cfg_entry
+        if cfg is None:
+            raise RuntimeError(f"WAN configuration for task {task} is empty")
         device_id = 0 if device.startswith("cuda") else device
 
         if "ti2v" in task:
