@@ -3,11 +3,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import importlib
 import logging
 import os
-import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
 from uuid import uuid4
@@ -36,9 +37,8 @@ MODEL_CONFIGS = {
 
 WAN_DEMO_PRESET = {
     "size": "832*480",
-    "infer_steps": 12,
-    "fps": 16,
-    "num_frames": 48,
+    "sample_steps": 12,
+    "frame_num": 48,
 }
 
 WAN_MODEL_VARIANT = os.getenv("WAN_MODEL_VARIANT", "t2v-A14B")
@@ -68,6 +68,10 @@ ENABLE_VOICE_TO_VIDEO = os.getenv("ENABLE_VOICE_TO_VIDEO", "0") == "1"
 DEFAULT_HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
 
 app = FastAPI(title="Wan2.2 Video Service", version="1.0")
+
+wan_engine: "WANEngine | None" = None
+wan_engine_lock = asyncio.Lock()
+wan_ready = False
 
 
 _CACHED_WAN_CKPT: Optional[Path] = None
@@ -199,6 +203,28 @@ def _mark_model_loaded() -> None:
     _WAN_MODEL_IN_MEMORY = True
 
 
+def _parse_variant_options() -> dict:
+    options = {
+        "t5_cpu": False,
+        "offload_model": False,
+        "convert_model_dtype": False,
+    }
+
+    extras = _variant_cfg.get("extra_args", [])
+    if "--t5_cpu" in extras:
+        options["t5_cpu"] = True
+    if "--convert_model_dtype" in extras:
+        options["convert_model_dtype"] = True
+    if "--offload_model" in extras:
+        try:
+            idx = extras.index("--offload_model")
+            options["offload_model"] = str(extras[idx + 1]).lower() != "false"
+        except Exception:
+            options["offload_model"] = True
+
+    return options
+
+
 def _ensure_generate_script() -> None:
     generate_py = Path(WAN_CODE_DIR) / "generate.py"
     if not generate_py.exists():
@@ -211,6 +237,137 @@ def _ensure_generate_script() -> None:
 def _ensure_dirs() -> None:
     WAN_CKPT_DIR.mkdir(parents=True, exist_ok=True)
     Path(WAN_OUT_DIR).mkdir(parents=True, exist_ok=True)
+
+
+class WANEngine:
+    def __init__(self) -> None:
+        self.pipeline = None
+        self.task: Optional[str] = None
+        self.ckpt_dir: Optional[str] = None
+        self.device: Optional[str] = None
+        self._generate_module = None
+        self._wan_module = None
+        self._configs_module = None
+        self._variant_options = _parse_variant_options()
+
+    def _import_dependencies(self) -> None:
+        if str(WAN_CODE_DIR) not in sys.path:
+            sys.path.insert(0, str(WAN_CODE_DIR))
+        importlib.invalidate_caches()
+
+        self._generate_module = importlib.import_module("generate")
+        self._wan_module = importlib.import_module("wan")
+        self._configs_module = importlib.import_module("wan.configs")
+
+    def load(self, ckpt_dir: str, task: str, device: str = "cuda") -> None:
+        if self.pipeline is not None:
+            return
+
+        self._import_dependencies()
+
+        if not hasattr(self._configs_module, "WAN_CONFIGS"):
+            raise RuntimeError("WAN configuration module is missing WAN_CONFIGS")
+
+        cfg_fn = self._configs_module.WAN_CONFIGS.get(task)
+        if cfg_fn is None:
+            raise RuntimeError(f"Unsupported WAN task: {task}")
+
+        cfg = cfg_fn()
+        device_id = 0 if device.startswith("cuda") else device
+
+        if "ti2v" in task:
+            self.pipeline = self._wan_module.WanTI2V(
+                config=cfg,
+                checkpoint_dir=ckpt_dir,
+                device_id=device_id,
+                rank=0,
+                t5_fsdp=False,
+                dit_fsdp=False,
+                use_sp=False,
+                t5_cpu=self._variant_options.get("t5_cpu", False),
+                convert_model_dtype=self._variant_options.get("convert_model_dtype", False),
+            )
+        else:
+            self.pipeline = self._wan_module.WanT2V(
+                config=cfg,
+                checkpoint_dir=ckpt_dir,
+                device_id=device_id,
+                rank=0,
+                t5_fsdp=False,
+                dit_fsdp=False,
+                use_sp=False,
+                t5_cpu=self._variant_options.get("t5_cpu", False),
+                convert_model_dtype=self._variant_options.get("convert_model_dtype", False),
+            )
+
+        self.task = task
+        self.ckpt_dir = ckpt_dir
+        self.device = device
+        _mark_model_loaded()
+
+    def _compute_max_area(self, size: str) -> Optional[int]:
+        if self._configs_module and hasattr(self._configs_module, "MAX_AREA_CONFIGS"):
+            return self._configs_module.MAX_AREA_CONFIGS.get(size)
+        return None
+
+    def _save_video(self, video, save_file: Path) -> None:
+        save_file.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(video, (str, Path)):
+            output_path = Path(video)
+            if output_path != save_file:
+                save_file.write_bytes(output_path.read_bytes())
+            return
+
+        save_video = getattr(self._generate_module, "save_video", None)
+        if callable(save_video):
+            save_video(
+                video,
+                str(save_file),
+                fps=16,
+                nrow=1,
+                normalize=True,
+                value_range=(-1, 1),
+            )
+            return
+
+        try:
+            from diffusers.utils import export_to_video
+
+            export_to_video(video, str(save_file), fps=16)
+        except Exception as exc:
+            raise RuntimeError(f"Failed to write WAN output video: {exc}") from exc
+
+    def generate(
+        self,
+        prompt: str,
+        save_file: str,
+        size: str,
+        frame_num: int,
+        sample_steps: int,
+        solver: Optional[str] = None,
+    ) -> Path:
+        if self.pipeline is None:
+            raise RuntimeError("WANEngine has not been loaded")
+
+        max_area = self._compute_max_area(size)
+        if max_area is None:
+            raise RuntimeError(f"Unsupported WAN size: {size}")
+
+        output_path = Path(save_file)
+        video = self.pipeline.generate(
+            input_prompt=prompt,
+            num_repeat=1,
+            max_area=max_area,
+            infer_frames=frame_num,
+            shift=0,
+            sample_solver=solver,
+            sampling_steps=sample_steps,
+            guide_scale=4.5,
+            seed=-1,
+            offload_model=self._variant_options.get("offload_model", False),
+        )
+        self._save_video(video, output_path)
+        return output_path
 
 
 def _required_checkpoint_files(ckpt_dir: Path) -> list[Path]:
@@ -342,98 +499,43 @@ def _ensure_checkpoints_available(token: Optional[str]) -> Path:
         raise HTTPException(status_code=502, detail=f"Failed to download Wan2.2 checkpoints: {exc}")
 
 
-def _run_inference(prompt: str, ckpt_dir: Path) -> dict:
-    request_dir = Path(WAN_OUT_DIR) / str(uuid4())
-    request_dir.mkdir(parents=True, exist_ok=True)
+async def _ensure_engine_ready(token: Optional[str]) -> tuple[WANEngine, Path]:
+    global wan_engine, wan_ready
 
-    command = [
-        "python",
-        "generate.py",
-        "--task",
-        WAN_TASK,
-        "--ckpt_dir",
-        ckpt_dir,
-        "--size",
-        WAN_DEMO_PRESET["size"],
-        "--sample_steps",
-        WAN_DEMO_PRESET["infer_steps"],
-        "--frame_num",
-        WAN_DEMO_PRESET["num_frames"],
-        "--prompt",
-        prompt,
-        "--save_file",
-        str(request_dir / "wan-output.mp4"),
-    ] + _variant_cfg["extra_args"]
+    if wan_engine is None:
+        wan_engine = WANEngine()
 
-    env = os.environ.copy()
-    env["WAN_OUTPUT_DIR"] = str(request_dir)
+    ckpt_dir = _ensure_checkpoints_available(token)
+    if not wan_ready:
+        wan_engine.load(str(ckpt_dir), WAN_TASK)
+        wan_ready = True
+        logger.info("Wan2.2 model loaded into memory at %s", ckpt_dir)
 
-    command = [str(arg) for arg in command]
-    for idx, arg in enumerate(command):
-        if not isinstance(arg, str):
-            logger.debug("Command argument at index %s has type %s; casting to str", idx, type(arg))
-            command[idx] = str(arg)
-
-    logger.info(
-        "WAN inference (demo preset): %s, frame_num=%s, sample_steps=%s",
-        WAN_DEMO_PRESET["size"].replace("*", "x"),
-        WAN_DEMO_PRESET["num_frames"],
-        WAN_DEMO_PRESET["infer_steps"],
-    )
-    logger.info(
-        "Running Wan2.2 (%s) with repo_id=%s ckpt_dir=%s", WAN_MODEL_VARIANT, WAN_CKPT_REPO_ID, ckpt_dir
-    )
-    logger.info("Command: %s", " ".join(command))
-    try:
-        completed = subprocess.run(
-            command,
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd=WAN_CODE_DIR,
-            timeout=WAN_TIMEOUT_S,
-            env=env,
-        )
-    except subprocess.TimeoutExpired as exc:
-        logger.error("Wan2.2 inference timed out after %s seconds", WAN_TIMEOUT_S)
-        raise HTTPException(status_code=504, detail="Wan2.2 inference timed out") from exc
-    except subprocess.CalledProcessError as exc:
-        logger.error("Wan2.2 generate.py failed. stdout=%s stderr=%s", exc.stdout, exc.stderr)
-        raise HTTPException(status_code=500, detail="Wan2.2 inference failed; see logs for details") from exc
-
-    try:
-        video_bytes = _read_mp4_from_request_dir(request_dir)
-    except Exception as exc:  # pragma: no cover - inference diagnostics
-        logger.exception("Failed to locate generated MP4")
-        detail = f"Failed to locate generated MP4: {exc}"
-        if completed:
-            detail = f"{detail}. stderr: {completed.stderr}"
-        raise HTTPException(status_code=500, detail=detail)
-
-    _mark_model_loaded()
-
-    payload = _serialize_video_bytes(video_bytes)
-    payload.update(
-        {
-            "prompt": prompt,
-            "model": WAN_CKPT_REPO_ID,
-            "provider": None,
-            "cache_path": str(ckpt_dir),
-            "output_path": str(request_dir),
-        }
-    )
-    return payload
+    return wan_engine, ckpt_dir
 
 
 @app.on_event("startup")
 async def _warm_cache() -> None:
+    global wan_ready, wan_engine
+
     token = _resolve_hf_token(None)
     logger.info(
         "Starting warm cache for Wan2.2 (%s) repo_id=%s ckpt_dir=%s", WAN_MODEL_VARIANT, WAN_CKPT_REPO_ID, WAN_CKPT_DIR
     )
-    cache_path = _maybe_precache_model(token)
-    if cache_path:
-        logger.info("Wan2.2 checkpoints available at %s", cache_path)
+    try:
+        _ensure_generate_script()
+        _ensure_dirs()
+        ckpt_dir = _ensure_checkpoints_available(token)
+        wan_engine = WANEngine()
+        wan_engine.load(str(ckpt_dir), WAN_TASK)
+        wan_ready = True
+        logger.info("Wan2.2 checkpoints available at %s and model loaded", ckpt_dir)
+    except HTTPException as exc:  # pragma: no cover - warmup diagnostics
+        wan_ready = False
+        logger.warning("Failed to warm Wan2.2 model at startup: %s", exc.detail)
+    except Exception as exc:  # pragma: no cover - warmup diagnostics
+        wan_ready = False
+        logger.warning("Failed to warm Wan2.2 model at startup: %s", exc)
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -450,6 +552,13 @@ def healthcheck():
     )
 
 
+@app.get("/ready")
+def ready_check():
+    if wan_ready:
+        return {"status": "ready"}
+    raise HTTPException(status_code=503, detail="Wan2.2 model not yet initialized")
+
+
 @app.post("/generate_video")
 async def generate_video(request: GenerateVideoRequest):
     if not request.prompt:
@@ -462,6 +571,7 @@ async def generate_video(request: GenerateVideoRequest):
 
     _ensure_generate_script()
     _ensure_dirs()
+
     if not _has_local_checkpoints(WAN_CKPT_DIR) and not token:
         raise HTTPException(
             status_code=400,
@@ -471,16 +581,52 @@ async def generate_video(request: GenerateVideoRequest):
             ),
         )
 
-    _maybe_precache_model(token if WAN_PRECACHE else None)
-    ckpt_dir = _ensure_checkpoints_available(token)
+    request_dir = Path(WAN_OUT_DIR) / str(uuid4())
+    save_path = request_dir / "wan-output.mp4"
+
+    async with wan_engine_lock:
+        try:
+            engine, ckpt_dir = await _ensure_engine_ready(token)
+            logger.info(
+                "WAN inference (demo preset): %s, frame_num=%s, sample_steps=%s",
+                WAN_DEMO_PRESET["size"].replace("*", "x"),
+                WAN_DEMO_PRESET["frame_num"],
+                WAN_DEMO_PRESET["sample_steps"],
+            )
+            logger.info(
+                "Running Wan2.2 (%s) with repo_id=%s ckpt_dir=%s", WAN_MODEL_VARIANT, WAN_CKPT_REPO_ID, ckpt_dir
+            )
+            output_path = engine.generate(
+                prompt=request.prompt,
+                save_file=str(save_path),
+                size=WAN_DEMO_PRESET["size"],
+                frame_num=WAN_DEMO_PRESET["frame_num"],
+                sample_steps=WAN_DEMO_PRESET["sample_steps"],
+                solver=None,
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:  # pragma: no cover - inference errors
+            logger.exception("Wan2.2 inference failed")
+            raise HTTPException(status_code=500, detail=f"Wan2.2 inference failed: {exc}")
 
     try:
-        return _run_inference(request.prompt, ckpt_dir)
-    except HTTPException:
-        raise
-    except Exception as exc:  # pragma: no cover - inference errors
-        logger.exception("Wan2.2 inference failed")
-        raise HTTPException(status_code=500, detail=f"Wan2.2 inference failed: {exc}")
+        video_bytes = _read_mp4_from_request_dir(output_path.parent)
+    except Exception as exc:  # pragma: no cover - inference diagnostics
+        logger.exception("Failed to locate generated MP4")
+        raise HTTPException(status_code=500, detail=f"Failed to locate generated MP4: {exc}")
+
+    payload = _serialize_video_bytes(video_bytes)
+    payload.update(
+        {
+            "prompt": request.prompt,
+            "model": WAN_CKPT_REPO_ID,
+            "provider": None,
+            "cache_path": str(ckpt_dir),
+            "output_path": str(output_path.parent),
+        }
+    )
+    return payload
 
 
 if __name__ == "__main__":
