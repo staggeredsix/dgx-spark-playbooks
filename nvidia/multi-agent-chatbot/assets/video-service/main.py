@@ -57,8 +57,11 @@ WAN_TASK = os.getenv("WAN_TASK", _variant_cfg["task"])
 WAN_SIZE = os.getenv("WAN_SIZE", _variant_cfg["size"])
 WAN_PRECACHE = os.getenv("WAN_PRECACHE", "true").lower() == "true"
 WAN_TIMEOUT_S = int(os.getenv("WAN_TIMEOUT_S", "1800"))
-DEFAULT_WAN_HF_CACHE_DIR = Path("/tmp/hf")
+DEFAULT_WAN_HF_CACHE_DIR = Path("/models/wan2.2/cache/hf")
+FALLBACK_WAN_HF_CACHE_DIR = Path("/tmp/hf")
 WAN_HF_CACHE_DIR = Path(os.getenv("WAN_HF_CACHE_DIR", str(DEFAULT_WAN_HF_CACHE_DIR)))
+WAN_HF_SNAPSHOT_DIR = Path(os.getenv("WAN_HF_SNAPSHOT_DIR", "/models/wan2.2/cache/snapshot"))
+WAN_DISABLE_HF_DOWNLOAD = os.getenv("WAN_DISABLE_HF_DOWNLOAD", "0") == "1"
 MAX_PROMPT_LENGTH = 2000
 ENABLE_VOICE_TO_VIDEO = os.getenv("ENABLE_VOICE_TO_VIDEO", "0") == "1"
 
@@ -73,6 +76,8 @@ def _prepare_cache_dir() -> Path:
     candidates = [WAN_HF_CACHE_DIR]
     if WAN_HF_CACHE_DIR != DEFAULT_WAN_HF_CACHE_DIR:
         candidates.append(DEFAULT_WAN_HF_CACHE_DIR)
+    if FALLBACK_WAN_HF_CACHE_DIR not in candidates:
+        candidates.append(FALLBACK_WAN_HF_CACHE_DIR)
 
     for candidate in candidates:
         try:
@@ -187,23 +192,23 @@ def _ensure_dirs() -> None:
     Path(WAN_OUT_DIR).mkdir(parents=True, exist_ok=True)
 
 
-def _required_checkpoint_files() -> list[Path]:
+def _required_checkpoint_files(ckpt_dir: Path) -> list[Path]:
     return [
-        WAN_CKPT_DIR / "high_noise_model" / "config.json",
-        WAN_CKPT_DIR / "low_noise_model" / "config.json",
-        WAN_CKPT_DIR / "configuration.json",
+        ckpt_dir / "high_noise_model" / "config.json",
+        ckpt_dir / "low_noise_model" / "config.json",
+        ckpt_dir / "configuration.json",
     ]
 
 
-def _has_local_checkpoints() -> bool:
-    return all(path.exists() for path in _required_checkpoint_files())
+def _has_local_checkpoints(ckpt_dir: Path) -> bool:
+    return all(path.exists() for path in _required_checkpoint_files(ckpt_dir))
 
 
 def _maybe_precache_model(token: Optional[str]) -> Optional[str]:
     _ensure_dirs()
 
-    if _has_local_checkpoints():
-        logger.info("Wan2.2 checkpoints already present at %s", WAN_CKPT_DIR)
+    if _has_local_checkpoints(WAN_CKPT_DIR):
+        logger.info("Local checkpoints found; using ckpt_dir=%s", WAN_CKPT_DIR)
         return str(WAN_CKPT_DIR)
 
     if not WAN_PRECACHE:
@@ -217,15 +222,12 @@ def _maybe_precache_model(token: Optional[str]) -> Optional[str]:
         return None
 
     try:
-        snapshot_download(
-            repo_id=WAN_CKPT_REPO_ID,
-            repo_type="model",
-            token=token,
-            local_dir=str(WAN_CKPT_DIR),
-            cache_dir=str(WAN_CACHE_PATH),
-        )
-        logger.info("Cached Wan2.2 checkpoints at %s", WAN_CKPT_DIR)
-        return str(WAN_CKPT_DIR)
+        ckpt_dir = _ensure_checkpoints_available(token)
+        logger.info("Cached Wan2.2 checkpoints at %s", ckpt_dir)
+        return str(ckpt_dir)
+    except HTTPException as exc:  # pragma: no cover - warmup diagnostics
+        logger.warning("Failed to pre-cache Wan2.2 checkpoints: %s", exc.detail)
+        return None
     except Exception as exc:  # pragma: no cover - warmup diagnostics
         logger.warning("Failed to pre-cache Wan2.2 checkpoints: %s", exc)
         return None
@@ -265,10 +267,16 @@ def _read_mp4_from_request_dir(request_dir: Path) -> bytes:
     return video_path.read_bytes()
 
 
-def _ensure_checkpoints_available(token: Optional[str]) -> None:
-    if _has_local_checkpoints():
-        logger.info("WAN checkpoints found locally; skipping Hugging Face download")
-        return
+def _ensure_checkpoints_available(token: Optional[str]) -> Path:
+    if _has_local_checkpoints(WAN_CKPT_DIR):
+        logger.info("Local checkpoints found; using ckpt_dir=%s", WAN_CKPT_DIR)
+        return WAN_CKPT_DIR
+
+    if WAN_DISABLE_HF_DOWNLOAD:
+        raise HTTPException(
+            status_code=400,
+            detail="Local checkpoints missing and downloads disabled",
+        )
 
     if not token:
         raise HTTPException(
@@ -279,20 +287,31 @@ def _ensure_checkpoints_available(token: Optional[str]) -> None:
             ),
         )
 
+    WAN_CACHE_PATH.mkdir(parents=True, exist_ok=True)
+    WAN_HF_SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+
     try:
-        snapshot_download(
-            repo_id=WAN_CKPT_REPO_ID,
-            repo_type="model",
-            token=token,
-            local_dir=str(WAN_CKPT_DIR),
-            cache_dir=str(WAN_CACHE_PATH),
+        logger.info(
+            "Downloading checkpoints to snapshot_dir=%s cache_dir=%s",
+            WAN_HF_SNAPSHOT_DIR,
+            WAN_CACHE_PATH,
         )
+        snapshot_dir = Path(
+            snapshot_download(
+                repo_id=WAN_CKPT_REPO_ID,
+                repo_type="model",
+                token=token,
+                cache_dir=str(WAN_CACHE_PATH),
+                local_dir=str(WAN_HF_SNAPSHOT_DIR),
+            )
+        )
+        return snapshot_dir
     except Exception as exc:
         logger.exception("Failed to download Wan2.2 checkpoints")
         raise HTTPException(status_code=502, detail=f"Failed to download Wan2.2 checkpoints: {exc}")
 
 
-def _run_inference(prompt: str) -> dict:
+def _run_inference(prompt: str, ckpt_dir: Path) -> dict:
     request_dir = Path(WAN_OUT_DIR) / str(uuid4())
     request_dir.mkdir(parents=True, exist_ok=True)
 
@@ -302,7 +321,7 @@ def _run_inference(prompt: str) -> dict:
         "--task",
         WAN_TASK,
         "--ckpt_dir",
-        WAN_CKPT_DIR,
+        ckpt_dir,
         "--size",
         WAN_DEMO_PRESET["size"],
         "--infer_steps",
@@ -334,7 +353,7 @@ def _run_inference(prompt: str) -> dict:
         WAN_DEMO_PRESET["infer_steps"],
     )
     logger.info(
-        "Running Wan2.2 (%s) with repo_id=%s ckpt_dir=%s", WAN_MODEL_VARIANT, WAN_CKPT_REPO_ID, WAN_CKPT_DIR
+        "Running Wan2.2 (%s) with repo_id=%s ckpt_dir=%s", WAN_MODEL_VARIANT, WAN_CKPT_REPO_ID, ckpt_dir
     )
     logger.info("Command: %s", " ".join(command))
     try:
@@ -369,7 +388,7 @@ def _run_inference(prompt: str) -> dict:
             "prompt": prompt,
             "model": WAN_CKPT_REPO_ID,
             "provider": None,
-            "cache_path": WAN_CKPT_DIR,
+            "cache_path": str(ckpt_dir),
             "output_path": str(request_dir),
         }
     )
@@ -389,7 +408,7 @@ async def _warm_cache() -> None:
 
 @app.get("/health", response_model=HealthResponse)
 def healthcheck():
-    status = "ok" if _has_local_checkpoints() else "missing"
+    status = "ok" if _has_local_checkpoints(WAN_CKPT_DIR) else "missing"
     return HealthResponse(
         status=status,
         ckpt_repo_id=WAN_CKPT_REPO_ID,
@@ -413,7 +432,7 @@ async def generate_video(request: GenerateVideoRequest):
 
     _ensure_generate_script()
     _ensure_dirs()
-    if not _has_local_checkpoints() and not token:
+    if not _has_local_checkpoints(WAN_CKPT_DIR) and not token:
         raise HTTPException(
             status_code=400,
             detail=(
@@ -423,10 +442,10 @@ async def generate_video(request: GenerateVideoRequest):
         )
 
     _maybe_precache_model(token if WAN_PRECACHE else None)
-    _ensure_checkpoints_available(token)
+    ckpt_dir = _ensure_checkpoints_available(token)
 
     try:
-        return _run_inference(request.prompt)
+        return _run_inference(request.prompt, ckpt_dir)
     except HTTPException:
         raise
     except Exception as exc:  # pragma: no cover - inference errors
