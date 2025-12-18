@@ -46,7 +46,7 @@ WAN_CKPT_REPO_ID = os.getenv("WAN_CKPT_REPO_ID", _variant_cfg["repo_id"])
 WAN_CKPT_DIR = os.getenv("WAN_CKPT_DIR", "/models/wan2.2/ckpt")
 WAN_CODE_DIR = os.getenv("WAN_CODE_DIR", "/opt/wan2.2")
 WAN_OUT_DIR = os.getenv("WAN_OUT_DIR", "/tmp/wan_out")
-WAN_TASK = _variant_cfg["task"]
+WAN_TASK = os.getenv("WAN_TASK", _variant_cfg["task"])
 WAN_SIZE = os.getenv("WAN_SIZE", _variant_cfg["size"])
 WAN_PRECACHE = os.getenv("WAN_PRECACHE", "true").lower() == "true"
 WAN_TIMEOUT_S = int(os.getenv("WAN_TIMEOUT_S", "1800"))
@@ -270,6 +270,12 @@ def _run_inference(prompt: str) -> dict:
     env = os.environ.copy()
     env["WAN_OUTPUT_DIR"] = str(request_dir)
 
+    logger.info(
+        "WAN inference: task=%s ckpt_dir=%s size=%s",
+        WAN_TASK,
+        WAN_CKPT_DIR,
+        WAN_SIZE.replace("*", "x"),
+    )
     logger.info(
         "Running Wan2.2 (%s) with repo_id=%s ckpt_dir=%s", WAN_MODEL_VARIANT, WAN_CKPT_REPO_ID, WAN_CKPT_DIR
     )
