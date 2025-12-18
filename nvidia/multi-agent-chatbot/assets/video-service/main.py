@@ -324,11 +324,9 @@ def _run_inference(prompt: str, ckpt_dir: Path) -> dict:
         ckpt_dir,
         "--size",
         WAN_DEMO_PRESET["size"],
-        "--infer_steps",
+        "--sample_steps",
         WAN_DEMO_PRESET["infer_steps"],
-        "--fps",
-        WAN_DEMO_PRESET["fps"],
-        "--num_frames",
+        "--frame_num",
         WAN_DEMO_PRESET["num_frames"],
         "--prompt",
         prompt,
@@ -346,10 +344,9 @@ def _run_inference(prompt: str, ckpt_dir: Path) -> dict:
             command[idx] = str(arg)
 
     logger.info(
-        "WAN inference (demo preset): %s, %s frames, %sfps, %s steps",
+        "WAN inference (demo preset): %s, frame_num=%s, sample_steps=%s",
         WAN_DEMO_PRESET["size"].replace("*", "x"),
         WAN_DEMO_PRESET["num_frames"],
-        WAN_DEMO_PRESET["fps"],
         WAN_DEMO_PRESET["infer_steps"],
     )
     logger.info(
