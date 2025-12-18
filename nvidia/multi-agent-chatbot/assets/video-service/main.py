@@ -307,6 +307,12 @@ def _run_inference(prompt: str) -> dict:
     env = os.environ.copy()
     env["WAN_OUTPUT_DIR"] = str(request_dir)
 
+    command = [str(arg) for arg in command]
+    for idx, arg in enumerate(command):
+        if not isinstance(arg, str):
+            logger.debug("Command argument at index %s has type %s; casting to str", idx, type(arg))
+            command[idx] = str(arg)
+
     logger.info(
         "WAN inference: task=%s ckpt_dir=%s size=%s",
         WAN_TASK,
