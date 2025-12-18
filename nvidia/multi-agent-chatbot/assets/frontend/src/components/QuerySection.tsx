@@ -249,6 +249,14 @@ function stripVideoMarkup(content?: string): string {
     .trim();
 }
 
+function buildClientRequestId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `client-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 const MEDIA_FIELDS = [
   "image",
   "image_base64",
@@ -498,6 +506,13 @@ export default function QuerySection({
   const fadeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const objectUrlsRef = useRef<Set<string>>(new Set());
   const mediaBlobCache = useRef<Map<string, string>>(new Map());
+  const submitInFlightRef = useRef(false);
+
+  useEffect(() => {
+    if (!isStreaming) {
+      submitInFlightRef.current = false;
+    }
+  }, [isStreaming]);
 
   const registerObjectUrl = useCallback((url: string) => {
     objectUrlsRef.current.add(url);
@@ -997,7 +1012,12 @@ export default function QuerySection({
     e.preventDefault();
     const currentQuery = query.trim();
     const warmupReady = warmupComplete || loadingDismissed;
-    if (!warmupReady || ((!currentQuery && !attachment) || isStreaming || !wsRef.current)) return;
+    if (isStreaming || submitInFlightRef.current) return;
+    if (!warmupReady || ((!currentQuery && !attachment) || !wsRef.current)) return;
+
+    submitInFlightRef.current = true;
+    const clientRequestId = buildClientRequestId();
+    console.info({ client_request_id: clientRequestId });
 
     setQuery("");
     setIsStreaming(true);
@@ -1033,6 +1053,7 @@ export default function QuerySection({
           setAttachmentError((error as Error).message || "Attachment upload failed");
           setIsStreaming(false);
           setQuery(currentQuery);
+          submitInFlightRef.current = false;
           return;
         } finally {
           setIsUploadingAttachment(false);
@@ -1043,7 +1064,12 @@ export default function QuerySection({
         }
       }
 
-      const payload: Record<string, unknown> = { message: currentQuery };
+      const payload: Record<string, unknown> = {
+        message: currentQuery,
+        prompt: currentQuery,
+        chat_id: currentChatId || "default-chat",
+        client_request_id: clientRequestId,
+      };
       if (mediaId) {
         payload.media_id = mediaId;
       }
@@ -1063,6 +1089,7 @@ export default function QuerySection({
     } catch (error) {
       console.error("Error sending message:", error);
       setIsStreaming(false);
+      submitInFlightRef.current = false;
     }
   };
 
