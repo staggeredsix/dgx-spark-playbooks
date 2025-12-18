@@ -11,6 +11,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     WAN_CODE_DIR=/opt/wan2.2 \
     WAN_CKPT_DIR=/models/wan2.2/ckpt \
     WAN_OUT_DIR=/tmp/wan_out \
+    WAN_CACHE_DIR=/tmp/wan_cache \
     ENABLE_VOICE_TO_VIDEO=0
 
 RUN apt-get update && \
@@ -101,9 +102,10 @@ with open("/etc/ld.so.conf.d/torch.conf", "w", encoding="utf-8") as f:
 PY
 RUN ldconfig
 
-RUN mkdir -p ${WAN_CKPT_DIR} ${WAN_OUT_DIR}
+RUN mkdir -p ${WAN_CKPT_DIR} ${WAN_OUT_DIR} ${WAN_CACHE_DIR}
 
-ENV HF_HOME=/models/hf_cache
+ENV HF_HOME=${WAN_CACHE_DIR} \
+    HUGGINGFACE_HUB_CACHE=${WAN_CACHE_DIR}
 
 EXPOSE 8081
 
