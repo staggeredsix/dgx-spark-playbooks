@@ -117,6 +117,7 @@ services:
     environment:
       - WAN_MODEL_VARIANT=${WAN_MODEL_VARIANT:-t2v-A14B}
       - WAN_CKPT_DIR=${WAN_CKPT_DIR:-/models/wan2.2/ckpt}
+      - WAN_TASK=${WAN_TASK:-t2v-A14B}
       - WAN_CODE_DIR=${WAN_CODE_DIR:-/opt/wan2.2}
       - WAN_OUT_DIR=${WAN_OUT_DIR:-/tmp/wan_out}
       - WAN_PRECACHE=${WAN_PRECACHE:-true}
@@ -127,7 +128,7 @@ services:
     ports:
       - "8081:8081"
     volumes:
-      - wan-models:/models
+      - ./nvidia/multi-agent-chatbot/assets/models/Wan2.2-T2V-A14B:/models/wan2.2/ckpt:ro
       - wan-cache:/models/hf_cache
     restart: unless-stopped
     gpus: all
@@ -177,7 +178,6 @@ volumes:
   wan-cache:
   neo4j_data:
   neo4j_logs:
-  wan-models:
   flux-outputs:
 
 networks:
