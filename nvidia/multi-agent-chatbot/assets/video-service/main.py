@@ -70,6 +70,10 @@ DEFAULT_HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN"
 app = FastAPI(title="Wan2.2 Video Service", version="1.0")
 
 
+_CACHED_WAN_CKPT: Optional[Path] = None
+_WAN_MODEL_IN_MEMORY = False
+
+
 def _prepare_cache_dir() -> Path:
     """Return a writable Hugging Face cache directory, falling back to /tmp/hf."""
 
@@ -178,6 +182,23 @@ def _resolve_hf_token(override: Optional[str]) -> Optional[str]:
     return override or DEFAULT_HF_TOKEN
 
 
+def _cache_checkpoint(path: Path) -> Path:
+    global _CACHED_WAN_CKPT
+    _CACHED_WAN_CKPT = path
+    return path
+
+
+def _get_cached_checkpoint() -> Optional[Path]:
+    if _CACHED_WAN_CKPT and (_WAN_MODEL_IN_MEMORY or _has_local_checkpoints(_CACHED_WAN_CKPT)):
+        return _CACHED_WAN_CKPT
+    return None
+
+
+def _mark_model_loaded() -> None:
+    global _WAN_MODEL_IN_MEMORY
+    _WAN_MODEL_IN_MEMORY = True
+
+
 def _ensure_generate_script() -> None:
     generate_py = Path(WAN_CODE_DIR) / "generate.py"
     if not generate_py.exists():
@@ -207,9 +228,14 @@ def _has_local_checkpoints(ckpt_dir: Path) -> bool:
 def _maybe_precache_model(token: Optional[str]) -> Optional[str]:
     _ensure_dirs()
 
+    cached = _get_cached_checkpoint()
+    if cached:
+        logger.info("Using cached Wan2.2 checkpoints at %s", cached)
+        return str(cached)
+
     if _has_local_checkpoints(WAN_CKPT_DIR):
         logger.info("Local checkpoints found; using ckpt_dir=%s", WAN_CKPT_DIR)
-        return str(WAN_CKPT_DIR)
+        return str(_cache_checkpoint(WAN_CKPT_DIR))
 
     if not WAN_PRECACHE:
         logger.info("WAN_PRECACHE disabled; checkpoints will be downloaded on demand if needed.")
@@ -224,7 +250,7 @@ def _maybe_precache_model(token: Optional[str]) -> Optional[str]:
     try:
         ckpt_dir = _ensure_checkpoints_available(token)
         logger.info("Cached Wan2.2 checkpoints at %s", ckpt_dir)
-        return str(ckpt_dir)
+        return str(_cache_checkpoint(ckpt_dir))
     except HTTPException as exc:  # pragma: no cover - warmup diagnostics
         logger.warning("Failed to pre-cache Wan2.2 checkpoints: %s", exc.detail)
         return None
@@ -268,9 +294,14 @@ def _read_mp4_from_request_dir(request_dir: Path) -> bytes:
 
 
 def _ensure_checkpoints_available(token: Optional[str]) -> Path:
+    cached = _get_cached_checkpoint()
+    if cached:
+        logger.info("Using cached Wan2.2 checkpoints at %s", cached)
+        return cached
+
     if _has_local_checkpoints(WAN_CKPT_DIR):
         logger.info("Local checkpoints found; using ckpt_dir=%s", WAN_CKPT_DIR)
-        return WAN_CKPT_DIR
+        return _cache_checkpoint(WAN_CKPT_DIR)
 
     if WAN_DISABLE_HF_DOWNLOAD:
         raise HTTPException(
@@ -305,7 +336,7 @@ def _ensure_checkpoints_available(token: Optional[str]) -> Path:
                 local_dir=str(WAN_HF_SNAPSHOT_DIR),
             )
         )
-        return snapshot_dir
+        return _cache_checkpoint(snapshot_dir)
     except Exception as exc:
         logger.exception("Failed to download Wan2.2 checkpoints")
         raise HTTPException(status_code=502, detail=f"Failed to download Wan2.2 checkpoints: {exc}")
@@ -378,6 +409,8 @@ def _run_inference(prompt: str, ckpt_dir: Path) -> dict:
         if completed:
             detail = f"{detail}. stderr: {completed.stderr}"
         raise HTTPException(status_code=500, detail=detail)
+
+    _mark_model_loaded()
 
     payload = _serialize_video_bytes(video_bytes)
     payload.update(
