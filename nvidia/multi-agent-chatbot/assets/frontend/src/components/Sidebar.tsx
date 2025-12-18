@@ -727,7 +727,7 @@ export default function Sidebar({
               ×
             </button>
             <div className={styles.sidebarHeader}>
-              <h2 className={styles.title}>Spark Chat</h2>
+              <h2 className={styles.title}>DGX Central Station</h2>
             </div>
 
             <div className={styles.quickActions}>
