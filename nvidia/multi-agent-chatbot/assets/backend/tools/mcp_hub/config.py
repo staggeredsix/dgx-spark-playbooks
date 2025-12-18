@@ -65,8 +65,8 @@ class HubConfig:
 
         return cls(
             tavily_api_key=os.getenv("TAVILY_API_KEY"),
-            tavily_endpoint=os.getenv("TAVILY_ENDPOINT"),
-            tavily_timeout=float(os.getenv("TAVILY_TIMEOUT", "15")),
+            tavily_endpoint=os.getenv("TAVILY_ENDPOINT", "https://api.tavily.com/search"),
+            tavily_timeout=float(os.getenv("TAVILY_TIMEOUT", "30")),
             rag_index_dir=_resolve_path(os.getenv("RAG_INDEX_DIR"), "~/.cache/mcp_rag_index"),
             flux_endpoint=_derive_endpoint(os.getenv("FLUX_ENDPOINT"), flux_service_url, "generate_image"),
             flux_timeout=float(os.getenv("FLUX_TIMEOUT", "60")),
