@@ -69,12 +69,17 @@ def test_tavily_stub(monkeypatch, tmp_path):
     config.tavily_endpoint = "http://stub.tavily"
     hub = build_hub(config)
 
-    transport = httpx.MockTransport(lambda request: httpx.Response(200, json={"results": ["ok"]}))
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200, json={"results": [{"title": "ok", "url": "https://example.com", "content": "snippet", "score": 0.9}]}
+        )
+    )
     hub.tavily_spoke._client = httpx.Client(transport=transport)
 
     result = asyncio.run(hub.tools()["search.tavily"].handler("hello"))
     assert result["ok"] is True
-    assert result["results"] == {"results": ["ok"]}
+    assert result["query"] == "hello"
+    assert result["results"][0]["title"] == "ok"
 
 
 def test_rag_ingest_and_query(monkeypatch, tmp_path):

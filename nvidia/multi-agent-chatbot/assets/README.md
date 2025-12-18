@@ -39,9 +39,12 @@ Environment variables in `docker-compose.yml` wire these defaults to the correct
 
 - `MODELS` → chat/supervisor picker (default `gpt-oss:120b` first)
 - `CODE_MODEL` → code-generation MCP tool (`qwen3-coder:30b`)
+- `CODER_MODEL` → override for the coder MCP tool (defaults to `qwen3-coder:30b` when unset)
 - `VISION_MODEL` → image-understanding MCP tool (`ministral-3:14b`)
 - `EMBEDDING_MODEL` → vector search (`qwen3-embedding:8b`)
 - `OLLAMA_AUTOSTART_MODELS` → comma-separated list of models to warm on startup (`gpt-oss:120b,qwen3-embedding:8b,qwen3-coder:30b,ministral-3:14b`)
+- `TAVILY_API_KEY` → API key used by the Tavily search tool (required for live web searches)
+- `TAVILY_ENDPOINT` → override Tavily endpoint (default `https://api.tavily.com/search`)
 
 The Ollama runtime listens on port **11434** inside and outside the Docker network. Models listed in `OLLAMA_AUTOSTART_MODELS` are pulled if missing and warmed automatically when the container starts, with `gpt-oss:120b` and the embedding model prioritized so the agents can issue requests immediately without waiting for first-token load.
 
@@ -129,6 +132,22 @@ docker exec -it ollama ollama list
 
 # Spot-check Neo4j status
 docker exec -it neo4j cypher-shell -u neo4j -p chatbot_neo4j 'RETURN 1'
+```
+
+### Tool smoke tests (local quick checks)
+Run these tiny scripts from the repository root to verify the Tavily and coder tools are wired correctly:
+
+```bash
+TAVILY_API_KEY=<your_key> python - <<'PY'
+from assets.backend.tools.mcp_servers import tavily_search
+print(tavily_search.tavily_client.search("NVIDIA news", max_results=1, include_answer=True))
+PY
+
+python - <<'PY'
+import asyncio
+from assets.backend.tools.mcp_servers import code_generation
+print(asyncio.run(code_generation.write_code("print('hello world')", programming_language="python")))
+PY
 ```
 
 ### 6. Try out the sample prompts

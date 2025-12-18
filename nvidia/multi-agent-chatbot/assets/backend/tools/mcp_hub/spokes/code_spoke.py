@@ -16,9 +16,21 @@ logger = logging.getLogger(__name__)
 
 
 def register_tools(hub, _config):
-    async def write_code_tool(query: str, programming_language: str) -> Dict[str, object]:
+    async def write_code_tool(
+        query: str,
+        programming_language: str,
+        context: str | None = None,
+        files: list[str] | None = None,
+        language: str | None = None,
+    ) -> Dict[str, object]:
         try:
-            return await code_generation.write_code(query, programming_language)
+            return await code_generation.write_code(
+                query,
+                programming_language=programming_language,
+                context=context,
+                files=files,
+                language=language,
+            )
         except (APIConnectionError, httpx.ConnectError, httpcore.ConnectError) as exc:  # pragma: no cover - network/LLM failures
             logger.exception("Code generation failed")
             raise
