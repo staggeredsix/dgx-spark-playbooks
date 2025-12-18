@@ -43,15 +43,15 @@ if WAN_MODEL_VARIANT not in MODEL_CONFIGS:
 _variant_cfg = MODEL_CONFIGS[WAN_MODEL_VARIANT]
 
 WAN_CKPT_REPO_ID = os.getenv("WAN_CKPT_REPO_ID", _variant_cfg["repo_id"])
-WAN_CKPT_DIR = os.getenv("WAN_CKPT_DIR", "/models/wan2.2/ckpt")
+WAN_CKPT_DIR = Path(os.getenv("WAN_CKPT_DIR", "/models/wan2.2/ckpt"))
 WAN_CODE_DIR = os.getenv("WAN_CODE_DIR", "/opt/wan2.2")
 WAN_OUT_DIR = os.getenv("WAN_OUT_DIR", "/tmp/wan_out")
 WAN_TASK = os.getenv("WAN_TASK", _variant_cfg["task"])
 WAN_SIZE = os.getenv("WAN_SIZE", _variant_cfg["size"])
 WAN_PRECACHE = os.getenv("WAN_PRECACHE", "true").lower() == "true"
 WAN_TIMEOUT_S = int(os.getenv("WAN_TIMEOUT_S", "1800"))
-DEFAULT_WAN_CACHE_DIR = Path("/tmp/wan_cache")
-WAN_CACHE_DIR = Path(os.getenv("WAN_CACHE_DIR", str(DEFAULT_WAN_CACHE_DIR)))
+DEFAULT_WAN_HF_CACHE_DIR = Path("/tmp/hf")
+WAN_HF_CACHE_DIR = Path(os.getenv("WAN_HF_CACHE_DIR", str(DEFAULT_WAN_HF_CACHE_DIR)))
 MAX_PROMPT_LENGTH = 2000
 ENABLE_VOICE_TO_VIDEO = os.getenv("ENABLE_VOICE_TO_VIDEO", "0") == "1"
 
@@ -61,11 +61,11 @@ app = FastAPI(title="Wan2.2 Video Service", version="1.0")
 
 
 def _prepare_cache_dir() -> Path:
-    """Return a writable cache directory, falling back to /tmp/wan_cache."""
+    """Return a writable Hugging Face cache directory, falling back to /tmp/hf."""
 
-    candidates = [WAN_CACHE_DIR]
-    if WAN_CACHE_DIR != DEFAULT_WAN_CACHE_DIR:
-        candidates.append(DEFAULT_WAN_CACHE_DIR)
+    candidates = [WAN_HF_CACHE_DIR]
+    if WAN_HF_CACHE_DIR != DEFAULT_WAN_HF_CACHE_DIR:
+        candidates.append(DEFAULT_WAN_HF_CACHE_DIR)
 
     for candidate in candidates:
         try:
@@ -73,8 +73,10 @@ def _prepare_cache_dir() -> Path:
             test_file = candidate / ".wan_cache_write_test"
             test_file.write_text("ok", encoding="utf-8")
             test_file.unlink(missing_ok=True)
-            if candidate != WAN_CACHE_DIR:
-                logger.warning("WAN_CACHE_DIR %s is not writable; falling back to %s", WAN_CACHE_DIR, candidate)
+            if candidate != WAN_HF_CACHE_DIR:
+                logger.warning(
+                    "WAN_HF_CACHE_DIR %s is not writable; falling back to %s", WAN_HF_CACHE_DIR, candidate
+                )
             return candidate
         except Exception as exc:  # pragma: no cover - startup diagnostics
             logger.warning("Cache directory %s is not writable: %s", candidate, exc)
@@ -83,9 +85,9 @@ def _prepare_cache_dir() -> Path:
 
 
 WAN_CACHE_PATH = _prepare_cache_dir()
-os.environ.setdefault("HF_HOME", str(WAN_CACHE_PATH))
-os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(WAN_CACHE_PATH))
-logger.info("Wan2.2 cache directory set to %s", WAN_CACHE_PATH)
+os.environ["HF_HOME"] = str(WAN_CACHE_PATH)
+os.environ["HUGGINGFACE_HUB_CACHE"] = str(WAN_CACHE_PATH)
+logger.info("Wan2.2 HF cache directory set to %s", WAN_CACHE_PATH)
 
 
 def _validate_environment() -> None:
@@ -174,18 +176,20 @@ def _ensure_generate_script() -> None:
 
 
 def _ensure_dirs() -> None:
-    Path(WAN_CKPT_DIR).mkdir(parents=True, exist_ok=True)
+    WAN_CKPT_DIR.mkdir(parents=True, exist_ok=True)
     Path(WAN_OUT_DIR).mkdir(parents=True, exist_ok=True)
 
 
+def _required_checkpoint_files() -> list[Path]:
+    return [
+        WAN_CKPT_DIR / "high_noise_model" / "config.json",
+        WAN_CKPT_DIR / "low_noise_model" / "config.json",
+        WAN_CKPT_DIR / "configuration.json",
+    ]
+
+
 def _has_local_checkpoints() -> bool:
-    ckpt_path = Path(WAN_CKPT_DIR)
-    if not ckpt_path.exists():
-        return False
-    for entry in ckpt_path.rglob("*"):
-        if entry.is_file():
-            return True
-    return False
+    return all(path.exists() for path in _required_checkpoint_files())
 
 
 def _maybe_precache_model(token: Optional[str]) -> Optional[str]:
@@ -193,7 +197,7 @@ def _maybe_precache_model(token: Optional[str]) -> Optional[str]:
 
     if _has_local_checkpoints():
         logger.info("Wan2.2 checkpoints already present at %s", WAN_CKPT_DIR)
-        return WAN_CKPT_DIR
+        return str(WAN_CKPT_DIR)
 
     if not WAN_PRECACHE:
         logger.info("WAN_PRECACHE disabled; checkpoints will be downloaded on demand if needed.")
@@ -210,11 +214,11 @@ def _maybe_precache_model(token: Optional[str]) -> Optional[str]:
             repo_id=WAN_CKPT_REPO_ID,
             repo_type="model",
             token=token,
-            local_dir=WAN_CKPT_DIR,
+            local_dir=str(WAN_CKPT_DIR),
             cache_dir=str(WAN_CACHE_PATH),
         )
         logger.info("Cached Wan2.2 checkpoints at %s", WAN_CKPT_DIR)
-        return WAN_CKPT_DIR
+        return str(WAN_CKPT_DIR)
     except Exception as exc:  # pragma: no cover - warmup diagnostics
         logger.warning("Failed to pre-cache Wan2.2 checkpoints: %s", exc)
         return None
@@ -256,6 +260,7 @@ def _read_mp4_from_request_dir(request_dir: Path) -> bytes:
 
 def _ensure_checkpoints_available(token: Optional[str]) -> None:
     if _has_local_checkpoints():
+        logger.info("WAN checkpoints found locally; skipping Hugging Face download")
         return
 
     if not token:
@@ -272,7 +277,7 @@ def _ensure_checkpoints_available(token: Optional[str]) -> None:
             repo_id=WAN_CKPT_REPO_ID,
             repo_type="model",
             token=token,
-            local_dir=WAN_CKPT_DIR,
+            local_dir=str(WAN_CKPT_DIR),
             cache_dir=str(WAN_CACHE_PATH),
         )
     except Exception as exc:
