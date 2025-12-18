@@ -28,6 +28,22 @@ RUN git clone https://github.com/Wan-Video/Wan2.2.git ${WAN_CODE_DIR} && \
     cd ${WAN_CODE_DIR} && \
     git apply /tmp/wan_remove_s2v.patch
 
+# Make WanAnimate optional to avoid decord requirement (ARM64 friendly)
+RUN python - <<'PY'
+from pathlib import Path
+p = Path("${WAN_CODE_DIR}") / "wan" / "__init__.py"
+txt = p.read_text(encoding="utf-8")
+
+# Replace unconditional Animate import with optional import.
+txt = txt.replace(
+    "from .animate import WanAnimate",
+    "try:\n    from .animate import WanAnimate\nexcept Exception:\n    WanAnimate = None"
+)
+
+p.write_text(txt, encoding="utf-8")
+print("Patched wan/__init__.py to make WanAnimate optional (no decord required).")
+PY
+
 WORKDIR /app
 
 COPY main.py /app/main.py
@@ -82,6 +98,9 @@ print("transformers.modeling_layers OK")
 
 import peft
 print("peft OK", peft.__version__, peft.__file__)
+
+import wan
+print("wan import OK (Animate optional)")
 PY
 
 RUN python - <<'PY'
