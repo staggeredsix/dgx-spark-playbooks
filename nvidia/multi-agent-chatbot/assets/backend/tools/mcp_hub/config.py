@@ -6,10 +6,18 @@ defaults across tools. Secrets are redacted when logged.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional
+
+from config import ConfigManager
+
+
+logger = logging.getLogger(__name__)
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _resolve_path(value: Optional[str], default: str) -> Path:
@@ -63,8 +71,27 @@ class HubConfig:
 
         ministral_service_url = os.getenv("MINISTRAL_SERVICE_URL", "http://backend:8000")
 
+        config_path = os.getenv("CONFIG_PATH") or str(PROJECT_ROOT / "config.json")
+        config_settings: Dict[str, object] = {}
+
+        try:
+            config_manager = ConfigManager(config_path)
+            config_settings = config_manager.get_tavily_settings()
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            logger.debug(
+                "Unable to load Tavily settings from config file; falling back to environment",
+                exc_info=exc,
+            )
+
+        env_tavily_key = os.getenv("TAVILY_API_KEY")
+        configured_key = (
+            config_settings.get("api_key")
+            if config_settings.get("enabled")
+            else None
+        )
+
         return cls(
-            tavily_api_key=os.getenv("TAVILY_API_KEY"),
+            tavily_api_key=env_tavily_key or configured_key,
             tavily_endpoint=os.getenv("TAVILY_ENDPOINT", "https://api.tavily.com/search"),
             tavily_timeout=float(os.getenv("TAVILY_TIMEOUT", "30")),
             rag_index_dir=_resolve_path(os.getenv("RAG_INDEX_DIR"), "~/.cache/mcp_rag_index"),

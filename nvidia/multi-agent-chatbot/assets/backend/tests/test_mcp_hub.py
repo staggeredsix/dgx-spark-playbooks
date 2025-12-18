@@ -2,10 +2,12 @@ import asyncio
 import sys
 from pathlib import Path
 
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+
 import httpx
 import pytest
 
-sys.path.append(str(Path(__file__).resolve().parents[1]))
+from config import ConfigManager
 
 from tools.mcp_hub.config import HubConfig
 from tools.mcp_hub.hub import build_hub
@@ -114,4 +116,18 @@ def test_rag_ingest_and_query(monkeypatch, tmp_path):
     assert "blue" in query_response["answer"]
     health = asyncio.run(hub.tools()["rag.health"].handler())
     assert health["documents_indexed"] == 1
+
+
+def test_tavily_config_loaded_from_file(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.json"
+    manager = ConfigManager(str(config_path))
+    manager.update_tavily_settings(True, "file-key")
+
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.setenv("CONFIG_PATH", str(config_path))
+
+    cfg = HubConfig.from_env()
+
+    assert cfg.tavily_api_key == "file-key"
+    assert cfg.tavily_endpoint == "https://api.tavily.com/search"
 
