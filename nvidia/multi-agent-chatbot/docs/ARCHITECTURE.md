@@ -18,6 +18,14 @@ Supervisor LLM (stdio) -> MCP Hub (FastMCP) -> Internal spokes
   * `video.wan` – `video.wan.generate`, `video.wan.health`
   * `vision.ministral` – `vision.ministral.describe`, `vision.ministral.health`
 
+Legacy aliases remain registered for backward compatibility with prompts and warmup
+flows:
+
+* `tavily_search` and `generic_web_search` map to `search.tavily`
+* `search_documents` maps to `rag.query`
+* `generate_image` maps to `image.flux.generate`
+* `generate_video` maps to `video.wan.generate`
+
 Each tool surfaces errors via a common envelope instead of crashing startup.
 
 ## Configuration

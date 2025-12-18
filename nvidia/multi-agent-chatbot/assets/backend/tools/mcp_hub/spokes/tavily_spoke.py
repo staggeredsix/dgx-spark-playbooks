@@ -147,6 +147,11 @@ class TavilySpoke:
 def register_tools(hub, config: HubConfig):
     spoke = TavilySpoke(config)
 
+    def _retag(result: object, tool_name: str):
+        if isinstance(result, dict):
+            return {**result, "tool": tool_name}
+        return result
+
     async def search_tool(
         query: str,
         max_results: int = 5,
@@ -160,11 +165,46 @@ def register_tools(hub, config: HubConfig):
             include_raw_content=include_raw_content,
         )
 
+    async def tavily_search_tool(
+        query: str,
+        max_results: int = 5,
+        include_answer: bool = False,
+        include_raw_content: bool = False,
+    ):
+        return _retag(
+            await search_tool(
+                query,
+                max_results=max_results,
+                include_answer=include_answer,
+                include_raw_content=include_raw_content,
+            ),
+            "tavily_search",
+        )
+
+    async def generic_web_search_tool(
+        query: str,
+        max_results: int = 5,
+        include_answer: bool = False,
+        include_raw_content: bool = False,
+    ):
+        return _retag(
+            await search_tool(
+                query,
+                max_results=max_results,
+                include_answer=include_answer,
+                include_raw_content=include_raw_content,
+            ),
+            "generic_web_search",
+        )
+
     async def health_tool():
         return spoke.health()
 
     hub.register_tool("search.tavily", "Call Tavily search", search_tool)
     hub.register_tool("search.health", "Health check for Tavily", health_tool)
+    # Legacy aliases used by prompts and warmup flows
+    hub.register_tool("tavily_search", "Call Tavily search", tavily_search_tool)
+    hub.register_tool("generic_web_search", "Fallback general-purpose web search", generic_web_search_tool)
 
     hub.tavily_spoke = spoke  # type: ignore[attr-defined]
 

@@ -135,14 +135,24 @@ class WanSpoke:
 def register_tools(hub, config: HubConfig):
     spoke = WanSpoke(config)
 
+    def _retag(result: object, tool_name: str):
+        if isinstance(result, dict):
+            return {**result, "tool": tool_name}
+        return result
+
     async def generate_tool(prompt: str, client_request_id: Optional[str] = None):
         return await spoke.generate(prompt, client_request_id)
 
     async def health_tool():
         return spoke.health()
 
+    async def generate_video_tool(prompt: str, client_request_id: Optional[str] = None):
+        return _retag(await generate_tool(prompt, client_request_id), "generate_video")
+
     hub.register_tool("video.wan.generate", "Generate video via WAN", generate_tool)
     hub.register_tool("video.wan.health", "Health check for WAN", health_tool)
+    # Legacy alias for backwards compatibility with prompts and warmup
+    hub.register_tool("generate_video", "Generate video via WAN", generate_video_tool)
 
     hub.wan_spoke = spoke  # type: ignore[attr-defined]
 

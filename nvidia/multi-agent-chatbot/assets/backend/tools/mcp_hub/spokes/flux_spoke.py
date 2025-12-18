@@ -135,14 +135,24 @@ class FluxSpoke:
 def register_tools(hub, config: HubConfig):
     spoke = FluxSpoke(config)
 
+    def _retag(result: object, tool_name: str):
+        if isinstance(result, dict):
+            return {**result, "tool": tool_name}
+        return result
+
     async def generate_tool(prompt: str, client_request_id: Optional[str] = None):
         return await spoke.generate(prompt, client_request_id)
 
     async def health_tool():
         return spoke.health()
 
+    async def generate_image_tool(prompt: str, client_request_id: Optional[str] = None):
+        return _retag(await generate_tool(prompt, client_request_id), "generate_image")
+
     hub.register_tool("image.flux.generate", "Generate images via FLUX", generate_tool)
     hub.register_tool("image.flux.health", "Health check for FLUX", health_tool)
+    # Legacy alias for backwards compatibility with prompts and warmup
+    hub.register_tool("generate_image", "Generate images via FLUX", generate_image_tool)
 
     hub.flux_spoke = spoke  # type: ignore[attr-defined]
 
