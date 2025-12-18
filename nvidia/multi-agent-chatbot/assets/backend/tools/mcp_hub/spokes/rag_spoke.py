@@ -150,11 +150,19 @@ class RagSpoke:
 def register_tools(hub, config: HubConfig):
     spoke = RagSpoke(config)
 
+    def _retag(result: object, tool_name: str):
+        if isinstance(result, dict):
+            return {**result, "tool": tool_name}
+        return result
+
     async def query_tool(question: str):
         return await spoke.query(question)
 
     async def ingest_tool(text: str, source: Optional[str] = None):
         return await spoke.ingest(text=text, source=source)
+
+    async def search_documents_tool(question: str):
+        return _retag(await query_tool(question), "search_documents")
 
     async def health_tool():
         return await spoke.health()
@@ -162,6 +170,8 @@ def register_tools(hub, config: HubConfig):
     hub.register_tool("rag.query", "Query the local RAG index", query_tool)
     hub.register_tool("rag.ingest", "Ingest content into the RAG index", ingest_tool)
     hub.register_tool("rag.health", "Health check for RAG index", health_tool)
+    # Legacy alias so prompts and warmup continue to match hub names
+    hub.register_tool("search_documents", "Query the local RAG index", search_documents_tool)
 
     # Expose spoke for tests
     hub.rag_spoke = spoke  # type: ignore[attr-defined]

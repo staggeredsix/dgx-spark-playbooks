@@ -34,12 +34,17 @@ def test_hub_starts_without_spokes(monkeypatch, tmp_path):
         "rag.query",
         "rag.ingest",
         "rag.health",
+        "search_documents",
         "search.tavily",
         "search.health",
+        "tavily_search",
+        "generic_web_search",
         "image.flux.generate",
         "image.flux.health",
+        "generate_image",
         "video.wan.generate",
         "video.wan.health",
+        "generate_video",
         "vision.ministral.describe",
         "vision.ministral.health",
     }
@@ -49,6 +54,22 @@ def test_hub_starts_without_spokes(monkeypatch, tmp_path):
     flux_result = asyncio.run(hub.tools()["image.flux.generate"].handler("test"))
     assert flux_result["ok"] is False
     assert flux_result["error_type"] == "misconfigured"
+
+    alias_flux_result = asyncio.run(hub.tools()["generate_image"].handler("test"))
+    assert alias_flux_result["tool"] == "generate_image"
+    assert alias_flux_result["ok"] is False
+
+    search_documents_result = asyncio.run(hub.tools()["search_documents"].handler("nothing"))
+    assert search_documents_result["tool"] == "search_documents"
+
+    tavily_result = asyncio.run(hub.tools()["tavily_search"].handler("hello"))
+    assert tavily_result["tool"] == "tavily_search"
+
+    generic_search_result = asyncio.run(hub.tools()["generic_web_search"].handler("hello"))
+    assert generic_search_result["tool"] == "generic_web_search"
+
+    video_result = asyncio.run(hub.tools()["generate_video"].handler("clip"))
+    assert video_result["tool"] == "generate_video"
 
 
 def test_rag_single_flight(monkeypatch, tmp_path):
