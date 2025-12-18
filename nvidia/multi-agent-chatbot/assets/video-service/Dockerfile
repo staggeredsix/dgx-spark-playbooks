@@ -103,8 +103,9 @@ print("transformers.modeling_layers OK")
 import peft
 print("peft OK", peft.__version__, peft.__file__)
 
-import wan
-print("wan import OK (Animate optional)")
+wan_init = "/opt/wan2.2/wan/__init__.py"
+print("wan package present:", os.path.exists(wan_init))
+print("Skipping wan import at build-time (requires runtime CUDA/driver).")
 PY
 
 RUN python - <<'PY'
