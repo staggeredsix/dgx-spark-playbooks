@@ -332,7 +332,7 @@ def _collect_gpu_metrics_local() -> list[dict[str, float | str]]:
         output = subprocess.check_output(
             [
                 "nvidia-smi",
-                "--query-gpu=uuid,name,utilization.gpu,memory.used,memory.total",
+                "--query-gpu=index,name,utilization.gpu,memory.used,memory.total",
                 "--format=csv,noheader,nounits",
             ],
             text=True,
@@ -350,14 +350,14 @@ def _collect_gpu_metrics_local() -> list[dict[str, float | str]]:
             continue
 
         try:
-            gpu_uuid, name, utilization, memory_used, memory_total = parts[:5]
+            gpu_index, name, utilization, memory_used, memory_total = parts[:5]
             total_memory_mib = float(memory_total)
             used_memory_mib = float(memory_used)
             memory_utilization = (used_memory_mib / total_memory_mib) * 100 if total_memory_mib else 0.0
 
             gpu_metrics.append(
                 {
-                    "id": gpu_uuid,
+                    "index": int(gpu_index),
                     "name": name,
                     "utilization": float(utilization),
                     "memory_used_gb": round(used_memory_mib / 1024, 2),
@@ -384,7 +384,23 @@ def _collect_gpu_metrics_remote() -> list[dict[str, float | str]]:
         payload = response.json() or {}
         metrics = payload.get("gpus") if isinstance(payload, dict) else None
         if metrics and isinstance(metrics, list):
-            return metrics
+            sanitized_metrics: list[dict[str, float | str]] = []
+
+            for idx, gpu_metric in enumerate(metrics):
+                if not isinstance(gpu_metric, dict):
+                    continue
+
+                metric_copy: dict[str, float | str] = {**gpu_metric}
+                metric_copy.pop("id", None)
+
+                try:
+                    metric_copy["index"] = int(metric_copy.get("index", idx))
+                except (TypeError, ValueError):
+                    metric_copy["index"] = idx
+
+                sanitized_metrics.append(metric_copy)
+
+            return sanitized_metrics
         logger.warning("Unexpected payload from nvidia-smi service: %s", payload)
     except Exception:
         logger.warning("Unable to collect GPU metrics via nvidia-smi service", exc_info=True)
@@ -403,7 +419,7 @@ def _collect_gpu_metrics() -> list[dict[str, float | str]]:
 
 
 def _collect_system_resources() -> dict:
-    """Gather CPU, DRAM, and GPU metrics for the system."""
+    """Gather CPU, memory, and GPU metrics for the system."""
 
     memory_stats = psutil.virtual_memory()
     used_memory = memory_stats.total - memory_stats.available
@@ -436,7 +452,7 @@ async def trigger_warmup():
 
 @app.get("/system_resources")
 async def get_system_resources():
-    """Expose CPU, DRAM, and GPU metrics for the frontend resource monitor."""
+    """Expose CPU, memory, and GPU metrics for the frontend resource monitor."""
 
     try:
         return _collect_system_resources()

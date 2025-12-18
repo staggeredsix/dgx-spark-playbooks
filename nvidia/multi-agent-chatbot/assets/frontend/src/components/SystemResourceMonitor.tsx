@@ -19,7 +19,7 @@ import { backendFetch } from '@/utils/backend';
 import styles from '@/styles/Sidebar.module.css';
 
 type GpuMetrics = {
-  id: string;
+  index: number;
   name: string;
   utilization: number;
   memory_used_gb: number;
@@ -111,10 +111,10 @@ export default function SystemResourceMonitor() {
             {!hasGpu && <div className={styles.metricMuted}>No NVIDIA GPUs detected.</div>}
 
             {metrics.gpus.map((gpu) => (
-              <div key={gpu.id} className={styles.gpuCard}>
+              <div key={gpu.index ?? gpu.name} className={styles.gpuCard}>
                 <div className={styles.gpuHeader}>
                   <div className={styles.gpuName}>{gpu.name}</div>
-                  <div className={styles.gpuId}>{gpu.id}</div>
+                  <div className={styles.gpuId}>GPU {gpu.index}</div>
                 </div>
 
                 <div className={styles.metricRow}>
@@ -130,7 +130,7 @@ export default function SystemResourceMonitor() {
             <div className={styles.resourceTitle}>Cohesive Memory</div>
             <div className={styles.gpuCard}>
               <div className={styles.metricRow}>
-                <span className={styles.metricLabel}>DRAM</span>
+                <span className={styles.metricLabel}>Memory</span>
                 <ProgressBar percent={metrics.memory.percent} />
                 <span className={styles.metricValue}>{formatValue(metrics.memory.percent)}%</span>
               </div>
