@@ -42,6 +42,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from huggingface_hub import snapshot_download
 import psutil
+import requests
 
 from agent import ChatAgent
 from config import ConfigManager
@@ -71,6 +72,7 @@ NEO4J_URI = os.getenv("NEO4J_URI", "neo4j://neo4j:7687")
 NEO4J_USERNAME = os.getenv("NEO4J_USERNAME", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "chatbot_neo4j")
 NEO4J_DATABASE = os.getenv("NEO4J_DATABASE", "neo4j")
+NVIDIA_SMI_SERVICE_URL = os.getenv("NVIDIA_SMI_SERVICE_URL", "http://nvidia-smi:8082/metrics")
 
 config_manager = ConfigManager("./config.json")
 
@@ -317,8 +319,8 @@ def _bytes_to_gb(value: float) -> float:
     return round(value / (1024 ** 3), 2)
 
 
-def _collect_gpu_metrics() -> list[dict[str, float | str]]:
-    """Collect GPU utilization and memory metrics using ``nvidia-smi``.
+def _collect_gpu_metrics_local() -> list[dict[str, float | str]]:
+    """Collect GPU utilization and memory metrics using ``nvidia-smi`` locally.
 
     Returns an empty list if ``nvidia-smi`` is unavailable or fails.
     """
@@ -336,7 +338,7 @@ def _collect_gpu_metrics() -> list[dict[str, float | str]]:
             text=True,
         )
     except (subprocess.CalledProcessError, FileNotFoundError):
-        logger.warning("Unable to collect GPU metrics via nvidia-smi", exc_info=True)
+        logger.warning("Unable to collect GPU metrics via local nvidia-smi", exc_info=True)
         return []
 
     gpu_metrics: list[dict[str, float | str]] = []
@@ -367,6 +369,37 @@ def _collect_gpu_metrics() -> list[dict[str, float | str]]:
             continue
 
     return gpu_metrics
+
+
+def _collect_gpu_metrics_remote() -> list[dict[str, float | str]]:
+    """Collect GPU metrics from the dedicated ``nvidia-smi`` service."""
+
+    service_url = NVIDIA_SMI_SERVICE_URL
+    if not service_url:
+        return []
+
+    try:
+        response = requests.get(service_url, timeout=3)
+        response.raise_for_status()
+        payload = response.json() or {}
+        metrics = payload.get("gpus") if isinstance(payload, dict) else None
+        if metrics and isinstance(metrics, list):
+            return metrics
+        logger.warning("Unexpected payload from nvidia-smi service: %s", payload)
+    except Exception:
+        logger.warning("Unable to collect GPU metrics via nvidia-smi service", exc_info=True)
+
+    return []
+
+
+def _collect_gpu_metrics() -> list[dict[str, float | str]]:
+    """Collect GPU utilization and memory metrics using local or remote ``nvidia-smi``."""
+
+    metrics = _collect_gpu_metrics_local()
+    if metrics:
+        return metrics
+
+    return _collect_gpu_metrics_remote()
 
 
 def _collect_system_resources() -> dict:
