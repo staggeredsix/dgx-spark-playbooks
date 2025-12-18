@@ -51,8 +51,6 @@ RUN python -m pip install --upgrade pip && \
         "imageio[ffmpeg]" && \
     python -m pip install --no-cache-dir --no-build-isolation --no-deps flash-attn
 
-RUN python -m pip uninstall -y torchvision || true
-
 # --- Final dependency override to avoid WAN pins downgrading transformers ---
 RUN python -m pip uninstall -y transformers peft accelerate tokenizers || true && \
     python -m pip install --no-cache-dir --upgrade --force-reinstall --no-deps \
@@ -63,19 +61,14 @@ RUN python -m pip uninstall -y transformers peft accelerate tokenizers || true &
       "safetensors>=0.4.3" \
       "tokenizers>=0.22.0,<=0.23.0"
 
-RUN python -m pip uninstall -y torchvision || true
-
 # Build-time sanity check (must pass)
 RUN python - <<'PY'
 import os
 print("TRANSFORMERS_NO_TORCHVISION =", os.getenv("TRANSFORMERS_NO_TORCHVISION"))
 
-# torchvision must not be installed
-try:
-    import torchvision  # noqa
-    raise SystemExit("ERROR: torchvision is installed but must not be")
-except Exception as e:
-    print("torchvision absent (expected):", type(e).__name__)
+import torchvision
+import torchvision.transforms.functional as TF
+print("torchvision OK", torchvision.__version__, "TF import OK")
 
 import tokenizers
 print("tokenizers", tokenizers.__version__)
