@@ -673,13 +673,15 @@ export default function Sidebar({
     setTavilyStatus(null);
 
     try {
+      const payload = {
+        enabled: tavilyEnabled,
+        api_key: tavilyApiKey.trim() || null
+      };
+
       const response = await backendFetch("/tavily", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          enabled: tavilyEnabled,
-          api_key: tavilyApiKey.trim() || null
-        })
+        body: JSON.stringify(payload)
       });
 
       if (!response.ok) {
@@ -687,6 +689,8 @@ export default function Sidebar({
         throw new Error(errorText || "Failed to save Tavily settings");
       }
 
+      // Re-fetch to ensure the saved API key and enablement reflect the backend state
+      await fetchTavilySettings();
       setTavilyStatus("Saved Tavily settings");
     } catch (error) {
       console.error("Error saving Tavily settings:", error);
