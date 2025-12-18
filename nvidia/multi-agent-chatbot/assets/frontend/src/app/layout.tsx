@@ -19,7 +19,7 @@ import "./globals.css";
 import ThemeToggle from "@/components/ThemeToggle";
 
 export const metadata: Metadata = {
-  title: "Spark Chat",
+  title: "DGX Central Station",
   description: "AI-powered chat interface",
 };
 
