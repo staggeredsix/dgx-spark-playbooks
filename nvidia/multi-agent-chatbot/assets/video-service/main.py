@@ -34,6 +34,13 @@ MODEL_CONFIGS = {
     },
 }
 
+WAN_DEMO_PRESET = {
+    "size": "832*480",
+    "infer_steps": 12,
+    "fps": 16,
+    "num_frames": 48,
+}
+
 WAN_MODEL_VARIANT = os.getenv("WAN_MODEL_VARIANT", "t2v-A14B")
 if WAN_MODEL_VARIANT not in MODEL_CONFIGS:
     raise RuntimeError(
@@ -294,10 +301,16 @@ def _run_inference(prompt: str) -> dict:
         "generate.py",
         "--task",
         WAN_TASK,
-        "--size",
-        WAN_SIZE,
         "--ckpt_dir",
         WAN_CKPT_DIR,
+        "--size",
+        WAN_DEMO_PRESET["size"],
+        "--infer_steps",
+        WAN_DEMO_PRESET["infer_steps"],
+        "--fps",
+        WAN_DEMO_PRESET["fps"],
+        "--num_frames",
+        WAN_DEMO_PRESET["num_frames"],
         "--prompt",
         prompt,
         "--save_file",
@@ -314,10 +327,11 @@ def _run_inference(prompt: str) -> dict:
             command[idx] = str(arg)
 
     logger.info(
-        "WAN inference: task=%s ckpt_dir=%s size=%s",
-        WAN_TASK,
-        WAN_CKPT_DIR,
-        WAN_SIZE.replace("*", "x"),
+        "WAN inference (demo preset): %s, %s frames, %sfps, %s steps",
+        WAN_DEMO_PRESET["size"].replace("*", "x"),
+        WAN_DEMO_PRESET["num_frames"],
+        WAN_DEMO_PRESET["fps"],
+        WAN_DEMO_PRESET["infer_steps"],
     )
     logger.info(
         "Running Wan2.2 (%s) with repo_id=%s ckpt_dir=%s", WAN_MODEL_VARIANT, WAN_CKPT_REPO_ID, WAN_CKPT_DIR
