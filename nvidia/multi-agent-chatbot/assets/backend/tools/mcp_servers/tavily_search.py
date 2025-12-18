@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import time
@@ -32,31 +33,43 @@ if str(project_root) not in sys.path:
 
 from config import ConfigManager
 
+logger = logging.getLogger(__name__)
+
 mcp = FastMCP("tavily-tools")
 
 
 class TavilyClient:
     """Lightweight client for Tavily search API."""
 
-    def __init__(self, config_path: str):
+    DEFAULT_ENDPOINT = "https://api.tavily.com/search"
+
+    def __init__(self, config_path: str, http_client: httpx.Client | None = None):
         self.config_manager = ConfigManager(config_path)
+        self.timeout = httpx.Timeout(30.0, connect=5.0)
+        self._client = http_client or httpx.Client(timeout=self.timeout)
+        self._reload_settings()
+        if os.getenv("TAVILY_SELFTEST") == "1":
+            logger.info({"message": "Tavily self-test requested", "api_key_present": bool(self.api_key)})
+
+    def _reload_settings(self) -> None:
+        """Refresh API key and enablement from env or config for every search."""
+
         settings = self.config_manager.get_tavily_settings()
         env_key = os.getenv("TAVILY_API_KEY")
+        env_endpoint = os.getenv("TAVILY_ENDPOINT")
+
         self.api_key = env_key or settings.get("api_key")
         self.enabled = bool(settings.get("enabled", False) or env_key)
-        self.endpoint = os.getenv("TAVILY_ENDPOINT", "https://api.tavily.com/search")
-        self.timeout = httpx.Timeout(30.0, connect=5.0)
-        self._client = httpx.Client(timeout=self.timeout)
+        self.endpoint = env_endpoint or self.DEFAULT_ENDPOINT
+
         logger.info(
             {
                 "message": "Loaded Tavily tool",
                 "endpoint": self.endpoint,
                 "api_key_present": bool(self.api_key),
-                "enabled_in_config": self.enabled,
+                "enabled_in_config": settings.get("enabled", False),
             }
         )
-        if os.getenv("TAVILY_SELFTEST") == "1":
-            logger.info({"message": "Tavily self-test requested", "api_key_present": bool(self.api_key)})
 
     def _missing_key(self) -> Dict[str, str]:
         return {
@@ -96,6 +109,8 @@ class TavilyClient:
         include_answer: bool = False,
         include_raw_content: bool = False,
     ) -> Dict[str, object]:
+        self._reload_settings()
+
         if not self.enabled:
             return {
                 "status": "error",
