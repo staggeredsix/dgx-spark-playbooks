@@ -36,6 +36,8 @@ services:
         condition: service_healthy
       ollama:
         condition: service_started
+      nvidia-smi:
+        condition: service_started
     restart: unless-stopped
     environment:
       - POSTGRES_HOST=postgres
@@ -53,6 +55,7 @@ services:
       - MODELS=gpt-oss:120b,ministral-3:14b,qwen3-coder:30b
       - FLUX_SERVICE_URL=http://flux-service:8080
       - VIDEO_SERVICE_URL=http://video-service:8081
+      - NVIDIA_SMI_SERVICE_URL=http://nvidia-smi:8082/metrics
 
   ollama:
     image: ollama/ollama:0.13.4
@@ -171,6 +174,16 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+
+  nvidia-smi:
+    container_name: nvidia-smi
+    build:
+      context: ./nvidia-smi-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    gpus: all
 
 volumes:
   postgres_data:
