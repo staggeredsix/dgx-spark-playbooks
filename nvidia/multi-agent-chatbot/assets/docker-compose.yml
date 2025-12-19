@@ -15,6 +15,28 @@
 # limitations under the License.
 #
 services:
+  nemotron-vllm:
+    container_name: nemotron-vllm
+    image: nvcr.io/nvidia/nemo:25.11.01
+    gpus: all
+    ipc: host
+    shm_size: "8gb"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./_hf_cache:/root/.cache/huggingface
+      - ./scripts/vllm_entrypoint.sh:/workspace/vllm_entrypoint.sh:ro
+    entrypoint: ["/bin/bash", "/workspace/vllm_entrypoint.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/v1/models > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30m
+
   backend:
     container_name: backend
     build:
@@ -90,6 +112,7 @@ services:
       - BACKEND_PROTOCOL=${BACKEND_PROTOCOL:-http}
       - BACKEND_HOST=${BACKEND_HOST:-backend}
       - BACKEND_PORT=${BACKEND_PORT:-8000}
+      - OPENAI_BASE_URL=http://nemotron-vllm:8000/v1
 
 
   flux-service:

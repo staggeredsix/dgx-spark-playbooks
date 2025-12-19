@@ -27,6 +27,18 @@ This project was built to be customizable, serving as a framework that developer
 ## System Overview
 <img src="assets/system-diagram.png" alt="System Diagram" style="max-width:600px;border-radius:5px;justify-content:center">
 
+## NeMo container server (Nemotron-3 Nano via vLLM)
+The Nemotron-3 Nano server runs inside the NeMo container and upgrades vLLM to meet the model requirements (**vLLM >= 0.12.0**). The server also downloads the NVIDIA reasoning parser plugin on startup, which is required for tool-choice and reasoning support.
+
+**First run note:** model weights, tokenizer, and config files are downloaded from Hugging Face and can take 20–30 minutes on a cold cache. The cache is mounted at `./_hf_cache` (mapped to `/root/.cache/huggingface` in the container) so subsequent runs are faster.
+
+Quick start (server only):
+```bash
+docker compose up -d nemotron-vllm
+```
+
+The server exposes an OpenAI-compatible endpoint at `http://localhost:8000/v1`.
+
 ## Default Models
 | Model                   | Source (Ollama)     | Model Type | Notes |
 |-------------------------|---------------------|------------|-------|
